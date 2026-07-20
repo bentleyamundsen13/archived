@@ -264,11 +264,17 @@ export async function migrateIfNeeded(user) {
 
   for (const c of d.collections) {
     const cid = c.id || crypto.randomUUID();
+    // Re-runs after a partial failure skip collections already copied.
+    if ((await getDoc(doc(db, "collections", cid))).exists()) continue;
     const code = await freshCode();
     const items = c.items || [];
     const now = Date.now();
-    const batch = writeBatch(db);
-    batch.set(doc(db, "collections", cid), {
+
+    // The collection doc must exist BEFORE its items are written: the
+    // security rules check membership by reading the parent doc, and that
+    // read cannot see a doc created in the same batch.
+    const head = writeBatch(db);
+    head.set(doc(db, "collections", cid), {
       name: c.name || "Collection",
       type: c.type || "General",
       owner: user.uid,
@@ -278,15 +284,20 @@ export async function migrateIfNeeded(user) {
       created: now,
       ...computeAggregates(items),
     });
-    batch.set(doc(db, "joinCodes", code), { collectionId: cid });
-    items.forEach((it, idx) => {
-      // Preserve order: items[0] was newest, so give it the largest stamp.
-      batch.set(doc(db, "collections", cid, "items", it.id || crypto.randomUUID()), {
-        ...it,
-        created: now - idx,
+    head.set(doc(db, "joinCodes", code), { collectionId: cid });
+    await head.commit();
+
+    for (let i = 0; i < items.length; i += 400) {
+      const batch = writeBatch(db);
+      items.slice(i, i + 400).forEach((it, idx) => {
+        // Preserve order: items[0] was newest, so give it the largest stamp.
+        batch.set(
+          doc(db, "collections", cid, "items", it.id || crypto.randomUUID()),
+          { ...it, created: now - (i + idx) }
+        );
       });
-    });
-    await batch.commit();
+      await batch.commit();
+    }
   }
   await setDoc(ref, { migratedV2: true }, { merge: true });
 }

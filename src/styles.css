@@ -24,6 +24,9 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; }
+/* Nothing may ever make the page scroll sideways — this app is a phone
+   app first. Any wide content must shrink or scroll inside its own box. */
+html, body { overflow-x: hidden; }
 
 body {
   background: var(--fog);
@@ -339,9 +342,9 @@ textarea.input { resize: vertical; }
 
 /* add + share row */
 .add-row { display: flex; gap: 10px; align-items: stretch; }
-.add-row .grow { flex: 1; }
-.share-box {
-  width: 56px; flex-shrink: 0; padding: 0;
+.add-row .btn.big.grow { width: auto; flex: 1 1 0; min-width: 0; }
+.add-row .btn.big.share-box {
+  width: 56px; flex: 0 0 56px; padding: 0;
   display: grid; place-items: center;
   margin: 14px 0 4px;
 }
