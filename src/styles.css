@@ -81,7 +81,8 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .screen, .rise, .pop, .lightbox, .lightbox img { animation: none; }
+  .screen, .rise, .pop, .lightbox, .lightbox img,
+  .reveal-backdrop, .reveal-card, .sheet-backdrop, .toast { animation: none; }
   .item-more { transition: none; }
 }
 
@@ -221,8 +222,8 @@ textarea.input { resize: vertical; }
   animation: lightboxIn 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 .lightbox img {
-  max-width: min(90vw, 480px);
-  max-height: 75vh;
+  max-width: min(92vw, 720px);
+  max-height: 80vh;
   border-radius: 16px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
   animation: lightboxZoom 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
@@ -335,6 +336,105 @@ textarea.input { resize: vertical; }
 .fineprint { font-size: 11.5px; color: var(--graphite); margin-top: 8px; }
 
 /* ---------------- misc ---------------- */
+
+/* add + share row */
+.add-row { display: flex; gap: 10px; align-items: stretch; }
+.add-row .grow { flex: 1; }
+.share-box {
+  width: 56px; flex-shrink: 0; padding: 0;
+  display: grid; place-items: center;
+  margin: 14px 0 4px;
+}
+
+/* share sheet */
+.sheet-backdrop {
+  position: fixed; inset: 0; z-index: 80;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(28, 30, 33, 0.45);
+  backdrop-filter: blur(3px);
+  animation: lightboxIn 0.2s ease;
+}
+.share-sheet {
+  width: min(92vw, 400px);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.share-blurb { font-size: 13.5px; color: var(--graphite); line-height: 1.45; }
+.join-code {
+  font-size: 26px; font-weight: 800; letter-spacing: 5px;
+  text-align: center; padding: 14px;
+  background: var(--fog); border: 1.5px dashed var(--mist);
+  border-radius: 12px; user-select: all;
+}
+.collectors { display: flex; flex-direction: column; gap: 8px; }
+.collector-row {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 14px; color: var(--ink);
+}
+.collector-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--graphite); flex-shrink: 0;
+}
+.join-link { display: block; margin: 18px auto 0; }
+
+/* toast */
+.toast {
+  position: fixed; left: 50%; bottom: 86px;
+  transform: translateX(-50%);
+  z-index: 90;
+  background: var(--ink); color: var(--fog);
+  padding: 11px 18px; border-radius: 12px;
+  font-size: 14px; font-weight: 500;
+  max-width: 88vw; text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  animation: toastIn 0.3s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+
+/* new-item reveal: the card pops up, holds, then shrinks into the list */
+.reveal-backdrop {
+  position: fixed; inset: 0; z-index: 70;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(28, 30, 33, 0.45);
+  backdrop-filter: blur(3px);
+  animation: lightboxIn 0.25s ease;
+}
+.reveal-backdrop.out { animation: lightboxIn 0.3s ease reverse forwards; }
+.reveal-card {
+  width: min(88vw, 380px);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 18px;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: revealIn 0.45s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.reveal-backdrop.out .reveal-card {
+  animation: revealOut 0.32s cubic-bezier(0.5, 0, 0.75, 0.4) forwards;
+}
+@keyframes revealIn {
+  from { opacity: 0; transform: translateY(28px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes revealOut {
+  to { opacity: 0; transform: translateY(70px) scale(0.3); }
+}
+.reveal-img {
+  width: 100%; aspect-ratio: 1; object-fit: cover;
+  border-radius: 14px; margin-bottom: 6px;
+  background: var(--fog);
+}
+.reveal-added {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--graphite);
+}
+.reveal-name { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; }
+.reveal-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-top: 6px;
+}
+.reveal-value { font-size: 21px; font-weight: 800; }
 
 .empty { text-align: center; padding: 44px 0 20px; }
 .empty p { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--graphite); }

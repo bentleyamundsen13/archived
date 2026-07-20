@@ -1,0 +1,68 @@
+rules_version = '2';
+
+// Archived — Firestore security rules.
+// Paste this whole file into: Firebase console -> Firestore Database ->
+// Rules -> (replace everything) -> Publish.
+//
+// The security model:
+//  - A collection can only be read/edited by its members.
+//  - A signed-in stranger can do exactly ONE thing to a collection they
+//    are not in: add THEMSELF to its member list. To do that they must
+//    know its random id, which they can only learn by looking up an
+//    invite code — so knowing the code is what grants entry.
+//  - Invite codes can be created but never listed, changed, or deleted,
+//    so nobody can hijack or enumerate them.
+//  - Only the owner can delete a collection.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function memberOf(data) {
+      return signedIn() && request.auth.uid in data.members;
+    }
+
+    // Legacy pre-sharing user blobs (kept as a migration safety net)
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /collections/{cid} {
+      allow read: if memberOf(resource.data);
+      allow create: if signedIn()
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.members == [request.auth.uid];
+      allow delete: if signedIn() && request.auth.uid == resource.data.owner;
+      // Members may edit anything; a non-member may only add themself
+      // (join), touching nothing but the member fields.
+      allow update: if memberOf(resource.data)
+        || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['members', 'memberNames'])
+            && request.resource.data.members.toSet()
+                 .difference(resource.data.members.toSet())
+                 == [request.auth.uid].toSet()
+            && resource.data.members.toSet()
+                 .difference(request.resource.data.members.toSet()).size() == 0);
+
+      match /items/{itemId} {
+        allow read, write: if memberOf(
+          get(/databases/$(database)/documents/collections/$(cid)).data);
+      }
+      match /images/{itemId} {
+        allow read, write: if memberOf(
+          get(/databases/$(database)/documents/collections/$(cid)).data);
+      }
+    }
+
+    match /joinCodes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['collectionId'])
+        && request.resource.data.collectionId is string;
+      allow list, update, delete: if false;
+    }
+  }
+}

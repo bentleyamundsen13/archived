@@ -6,8 +6,21 @@ import {
   emailSignUp,
   emailSignIn,
   logOut,
-  loadUserData,
-  saveUserData,
+  migrateIfNeeded,
+  watchCollections,
+  watchItems,
+  createCollection,
+  deleteCollectionDoc,
+  leaveCollection,
+  joinByCode,
+  addItemDoc,
+  updateItemDoc,
+  deleteItemDoc,
+  setItemImage,
+  getItemImage,
+  deleteItemImage,
+  setAggregates,
+  computeAggregates,
 } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -48,8 +61,10 @@ function resizeImage(file, maxSide = 1024, quality = 0.85) {
   });
 }
 
-function collectionTotal(c) {
-  return c.items.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
+// Guest collections still carry their items; cloud collections carry
+// pre-computed aggregate stats. Normalize to one shape for stats UI.
+function summarize(c) {
+  return c.items ? { ...c, ...computeAggregates(c.items) } : c;
 }
 
 /* ------------------------------------------------------------------ */
@@ -60,12 +75,14 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [guest, setGuest] = useState(false);
   const [authChecked, setAuthChecked] = useState(!firebaseReady);
-  const [data, setData] = useState({ collections: [] });
-  const [loaded, setLoaded] = useState(false);
+  const [guestData, setGuestData] = useState({ collections: [] });
+  const [guestLoaded, setGuestLoaded] = useState(false);
+  const [cols, setCols] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [tab, setTab] = useState("collections");
+  const [toast, setToast] = useState("");
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "system");
-  const saveTimer = useRef(null);
+  const toastTimer = useRef(null);
 
   // Apply theme
   useEffect(() => {
@@ -90,58 +107,113 @@ export default function App() {
     return unsub;
   }, []);
 
+  // Guest data lives in localStorage, same as always.
   useEffect(() => {
-    let cancelled = false;
-    async function go() {
-      if (user) {
-        const d = await loadUserData(user.uid);
-        if (!cancelled) {
-          setData(d);
-          setLoaded(true);
-        }
-      } else if (guest) {
-        setData(loadGuest());
-        setLoaded(true);
-      } else {
-        setLoaded(false);
-        setData({ collections: [] });
-        setOpenId(null);
-        setTab("collections");
-      }
+    if (user) {
+      setGuestLoaded(false);
+      return;
     }
-    go();
-    return () => {
-      cancelled = true;
-    };
+    if (guest) {
+      setGuestData(loadGuest());
+      setGuestLoaded(true);
+    } else {
+      setGuestLoaded(false);
+      setGuestData({ collections: [] });
+      setOpenId(null);
+      setTab("collections");
+    }
   }, [user, guest]);
 
   useEffect(() => {
-    if (!loaded) return;
-    if (user) {
-      clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        saveUserData(user.uid, data).catch(() => {});
-      }, 600);
-    } else if (guest) {
-      localStorage.setItem(GUEST_KEY, JSON.stringify(data));
+    if (guest && !user && guestLoaded) {
+      localStorage.setItem(GUEST_KEY, JSON.stringify(guestData));
     }
-  }, [data, user, guest, loaded]);
+  }, [guestData, guest, user, guestLoaded]);
+
+  // Signed in: live-sync collections (after a one-time migration of any
+  // legacy single-doc data).
+  useEffect(() => {
+    if (!user) {
+      setCols(null);
+      return;
+    }
+    let unsub = null;
+    let dead = false;
+    (async () => {
+      try {
+        await migrateIfNeeded(user);
+      } catch {}
+      if (!dead) unsub = watchCollections(user.uid, setCols);
+    })();
+    return () => {
+      dead = true;
+      if (unsub) unsub();
+      setCols(null);
+    };
+  }, [user]);
+
+  // Invite links: archivedcollections.netlify.app/?join=CODE
+  useEffect(() => {
+    if (!user) return;
+    const code = new URLSearchParams(window.location.search).get("join");
+    if (!code) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    joinByCode(code, user)
+      .then(() => showToast("You're in — the shared collection is now in your list."))
+      .catch(() => showToast("Couldn't join — that invite may be invalid."));
+  }, [user]);
+
+  function showToast(msg) {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 4000);
+  }
+
+  async function joinWithCode() {
+    const code = window.prompt("Enter the 8-character invite code:");
+    if (!code) return;
+    try {
+      await joinByCode(code, user);
+      showToast("Joined! The shared collection is now in your list.");
+    } catch {
+      showToast("Couldn't join with that code — double-check it.");
+    }
+  }
 
   if (!authChecked) return <div className="page center">Loading…</div>;
   if (!user && !guest) return <Landing onGuest={() => setGuest(true)} />;
 
-  const open = data.collections.find((c) => c.id === openId);
+  const cloud = !!user;
+  const loaded = cloud ? cols !== null : guestLoaded;
+  if (!loaded) return <div className="page center">Loading…</div>;
+
+  const collections = cloud ? cols : guestData.collections;
+  const open = collections.find((c) => c.id === openId);
 
   return (
     <div className="page with-tabbar">
       {tab === "collections" ? (
         open ? (
           <div className="screen" key={"col-" + open.id}>
-            <CollectionPage col={open} setData={setData} onBack={() => setOpenId(null)} />
+            <CollectionPage
+              col={open}
+              cloud={cloud}
+              user={user}
+              setGuestData={setGuestData}
+              showToast={showToast}
+              onBack={() => setOpenId(null)}
+            />
           </div>
         ) : (
           <div className="screen" key="home">
-            <CollectionsHome collections={data.collections} setData={setData} onOpen={setOpenId} />
+            <CollectionsHome
+              collections={collections.map(summarize)}
+              cloud={cloud}
+              user={user}
+              setGuestData={setGuestData}
+              onJoinCode={cloud ? joinWithCode : null}
+              onOpen={setOpenId}
+            />
           </div>
         )
       ) : (
@@ -149,7 +221,7 @@ export default function App() {
           <YouPage
             user={user}
             guest={guest}
-            data={data}
+            collections={collections.map(summarize)}
             theme={theme}
             setTheme={setTheme}
             onSignOut={async () => {
@@ -184,6 +256,8 @@ export default function App() {
           You
         </button>
       </nav>
+
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }
@@ -198,6 +272,7 @@ function Landing({ onGuest }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const invited = new URLSearchParams(window.location.search).has("join");
 
   async function submit() {
     setErr("");
@@ -235,6 +310,12 @@ function Landing({ onGuest }) {
       </p>
 
       <div className="auth-card">
+        {invited && (
+          <div className="setup-note">
+            You've been invited to a shared collection — sign in and it'll be
+            added automatically.
+          </div>
+        )}
         {firebaseReady ? (
           <>
             <button className="btn google" onClick={google}>
@@ -305,23 +386,36 @@ function GoogleMark() {
 /*  Collections home                                                   */
 /* ------------------------------------------------------------------ */
 
-function CollectionsHome({ collections, setData, onOpen }) {
+function CollectionsHome({ collections, cloud, user, setGuestData, onJoinCode, onOpen }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  function create() {
-    const col = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      type: type.trim() || "General",
-      items: [],
-    };
-    setData((d) => ({ ...d, collections: [...d.collections, col] }));
+  async function create() {
+    if (cloud) {
+      setBusy(true);
+      try {
+        const cid = await createCollection(user, name.trim(), type.trim() || "General");
+        onOpen(cid);
+      } catch {
+        alert("Couldn't create the collection — check your connection.");
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      const col = {
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        type: type.trim() || "General",
+        items: [],
+      };
+      setGuestData((d) => ({ ...d, collections: [...d.collections, col] }));
+      onOpen(col.id);
+    }
     setCreating(false);
     setName("");
     setType("");
-    onOpen(col.id);
   }
 
   return (
@@ -352,8 +446,8 @@ function CollectionsHome({ collections, setData, onOpen }) {
             <button className="btn light" onClick={() => setCreating(false)}>
               Cancel
             </button>
-            <button className="btn dark" disabled={!name.trim()} onClick={create}>
-              Create
+            <button className="btn dark" disabled={!name.trim() || busy} onClick={create}>
+              {busy ? <span className="spinner" /> : "Create"}
             </button>
           </div>
         </div>
@@ -374,25 +468,31 @@ function CollectionsHome({ collections, setData, onOpen }) {
             onClick={() => onOpen(c.id)}
           >
             <div className="thumb-stack">
-              {c.items.slice(0, 1).map((i) =>
-                i.image_url ? (
-                  <img key={i.id} className="thumb" src={i.image_url} alt="" onError={(e) => (e.target.style.display = "none")} />
-                ) : null
-              )}
-              {(!c.items[0] || !c.items[0].image_url) && (
+              {c.coverImage ? (
+                <img className="thumb" src={c.coverImage} alt="" onError={(e) => (e.target.style.display = "none")} />
+              ) : (
                 <div className="thumb ph">{c.name[0]?.toUpperCase()}</div>
               )}
             </div>
             <div className="grow">
               <div className="card-title">{c.name}</div>
               <div className="card-sub">
-                {c.items.length} {c.items.length === 1 ? "item" : "items"}
+                {c.itemCount} {c.itemCount === 1 ? "item" : "items"}
+                {c.members && c.members.length > 1
+                  ? ` · shared with ${c.members.length - 1}`
+                  : ""}
               </div>
             </div>
-            <div className="card-value">{money(collectionTotal(c))}</div>
+            <div className="card-value">{money(c.totalValue)}</div>
           </button>
         ))}
       </main>
+
+      {onJoinCode && (
+        <button className="btn text join-link" onClick={onJoinCode}>
+          Have an invite code? Join a shared collection
+        </button>
+      )}
     </>
   );
 }
@@ -401,24 +501,45 @@ function CollectionsHome({ collections, setData, onOpen }) {
 /*  Collection page                                                    */
 /* ------------------------------------------------------------------ */
 
-function CollectionPage({ col, setData, onBack }) {
+function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const camRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [zoomed, setZoomed] = useState(null);
+  const [reveal, setReveal] = useState(null);
+  const [sharing, setSharing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [cloudItems, setCloudItems] = useState(null);
+  const revealTimers = useRef([]);
 
-  function closeZoom() {
-    setZoomed((z) => (z ? { ...z, closing: true } : z));
-    setTimeout(() => setZoomed(null), 160);
-  }
+  useEffect(() => {
+    if (!cloud) return;
+    return watchItems(col.id, setCloudItems);
+  }, [cloud, col.id]);
 
-  function patchCollection(fn) {
-    setData((d) => ({
+  useEffect(() => () => revealTimers.current.forEach(clearTimeout), []);
+
+  const items = cloud ? cloudItems || [] : col.items;
+  const itemsReady = !cloud || cloudItems !== null;
+  const isOwner = !cloud || col.owner === user?.uid;
+  const total = items.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
+
+  function patchGuest(fn) {
+    setGuestData((d) => ({
       ...d,
       collections: d.collections.map((c) => (c.id === col.id ? fn(c) : c)),
     }));
+  }
+
+  function showReveal(item) {
+    revealTimers.current.forEach(clearTimeout);
+    setReveal({ item, out: false });
+    revealTimers.current = [
+      setTimeout(() => setReveal((r) => (r ? { ...r, out: true } : r)), 1800),
+      setTimeout(() => setReveal(null), 2160),
+    ];
   }
 
   async function addPhoto(file) {
@@ -438,12 +559,16 @@ function CollectionPage({ col, setData, onBack }) {
         ...out.item,
         id: crypto.randomUUID(),
         added: new Date().toISOString().slice(0, 10),
+        created: Date.now(),
       };
-      // The card image is the user's own photo, stored as a small
-      // thumbnail — all items share one Firestore doc, so keep it tiny.
+      const fullImage = "data:image/jpeg;base64," + imageBase64;
+      // Cards show a small thumbnail; the full-quality photo is stored
+      // separately (cloud) and only fetched when the user zooms in.
+      // Guests get one mid-size image — localStorage is small.
       try {
-        const thumb = await resizeImage(file, 256, 0.7);
-        item.image_url = "data:image/jpeg;base64," + thumb;
+        const side = cloud ? 256 : 512;
+        item.image_url =
+          "data:image/jpeg;base64," + (await resizeImage(file, side, 0.72));
       } catch {}
       try {
         const q = [item.brand, item.item_name].filter(Boolean).join(" ").trim();
@@ -463,7 +588,19 @@ function CollectionPage({ col, setData, onBack }) {
           }
         }
       } catch {}
-      patchCollection((c) => ({ ...c, items: [item, ...c.items] }));
+
+      if (cloud) {
+        await addItemDoc(col.id, item);
+        try {
+          await setItemImage(col.id, item.id, fullImage);
+        } catch {}
+        try {
+          await setAggregates(col.id, [item, ...items]);
+        } catch {}
+      } else {
+        patchGuest((c) => ({ ...c, items: [item, ...c.items] }));
+      }
+      showReveal({ ...item, image_url: fullImage });
     } catch (e) {
       setError(e.message || "Something went wrong — try another photo.");
     } finally {
@@ -471,22 +608,98 @@ function CollectionPage({ col, setData, onBack }) {
     }
   }
 
-  function saveEdit(itemId, fields) {
-    patchCollection((c) => ({
-      ...c,
-      items: c.items.map((i) => (i.id === itemId ? { ...i, ...fields, edited: true } : i)),
-    }));
+  async function saveEdit(itemId, fields) {
     setEditingId(null);
+    if (cloud) {
+      try {
+        await updateItemDoc(col.id, itemId, { ...fields, edited: true });
+        await setAggregates(
+          col.id,
+          items.map((i) => (i.id === itemId ? { ...i, ...fields } : i))
+        );
+      } catch {
+        showToast("Couldn't save that change — check your connection.");
+      }
+    } else {
+      patchGuest((c) => ({
+        ...c,
+        items: c.items.map((i) => (i.id === itemId ? { ...i, ...fields, edited: true } : i)),
+      }));
+    }
   }
 
-  function removeItem(itemId) {
-    patchCollection((c) => ({ ...c, items: c.items.filter((i) => i.id !== itemId) }));
+  async function removeItem(itemId) {
+    if (cloud) {
+      try {
+        await deleteItemDoc(col.id, itemId);
+        await deleteItemImage(col.id, itemId);
+        await setAggregates(col.id, items.filter((i) => i.id !== itemId));
+      } catch {
+        showToast("Couldn't remove that item — check your connection.");
+      }
+    } else {
+      patchGuest((c) => ({ ...c, items: c.items.filter((i) => i.id !== itemId) }));
+    }
   }
 
-  function removeCollection() {
+  async function removeCollection() {
     if (!confirm("Delete this collection and everything in it?")) return;
-    setData((d) => ({ ...d, collections: d.collections.filter((c) => c.id !== col.id) }));
+    if (cloud) {
+      try {
+        for (const it of items) {
+          await deleteItemDoc(col.id, it.id);
+          await deleteItemImage(col.id, it.id);
+        }
+        await deleteCollectionDoc(col.id);
+      } catch {
+        showToast("Couldn't delete the collection — check your connection.");
+        return;
+      }
+    } else {
+      setGuestData((d) => ({
+        ...d,
+        collections: d.collections.filter((c) => c.id !== col.id),
+      }));
+    }
     onBack();
+  }
+
+  async function leaveShared() {
+    if (!confirm("Leave this shared collection? You can rejoin later with the invite code.")) return;
+    try {
+      await leaveCollection(col.id, user);
+      onBack();
+    } catch {
+      showToast("Couldn't leave the collection — check your connection.");
+    }
+  }
+
+  function closeZoom() {
+    setZoomed((z) => (z ? { ...z, closing: true } : z));
+    setTimeout(() => setZoomed(null), 160);
+  }
+
+  async function openZoom(it) {
+    setZoomed({ url: it.image_url });
+    if (cloud) {
+      // Swap in the full-quality photo once it arrives.
+      try {
+        const full = await getItemImage(col.id, it.id);
+        if (full) setZoomed((z) => (z && !z.closing ? { ...z, url: full } : z));
+      } catch {}
+    }
+  }
+
+  function copyInvite() {
+    const link = `${window.location.origin}/?join=${col.joinCode}`;
+    const text = `Join my “${col.name}” collection on Archived: ${link}`;
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {});
   }
 
   return (
@@ -497,16 +710,31 @@ function CollectionPage({ col, setData, onBack }) {
       <header className="topbar">
         <div>
           <h1>{col.name}</h1>
-          <div className="card-sub">{col.type} · {col.items.length}</div>
+          <div className="card-sub">
+            {col.type} · {items.length}
+            {cloud && col.members?.length > 1 ? ` · ${col.members.length} collectors` : ""}
+          </div>
         </div>
         <div className="topbar-total">
-          <div className="topbar-total-num">{money(collectionTotal(col))}</div>
+          <div className="topbar-total-num">{money(total)}</div>
         </div>
       </header>
 
-      <button className="btn dark big" disabled={busy} onClick={() => camRef.current?.click()}>
-        {busy ? <span className="spinner" /> : "+ Add Item"}
-      </button>
+      <div className="add-row">
+        <button className="btn dark big grow" disabled={busy} onClick={() => camRef.current?.click()}>
+          {busy ? <span className="spinner" /> : "+ Add Item"}
+        </button>
+        {cloud && (
+          <button className="btn light big share-box" onClick={() => setSharing(true)} aria-label="Share collection">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <circle cx="6" cy="12" r="2.6" />
+              <circle cx="17.5" cy="5.5" r="2.6" />
+              <circle cx="17.5" cy="18.5" r="2.6" />
+              <path d="M8.4 10.8l6.8-4M8.4 13.2l6.8 4" />
+            </svg>
+          </button>
+        )}
+      </div>
       <input
         ref={camRef}
         type="file"
@@ -521,89 +749,153 @@ function CollectionPage({ col, setData, onBack }) {
 
       {error && <div className="error pop">{error}</div>}
 
-      <main className="list">
-        {col.items.map((it, idx) =>
-          editingId === it.id ? (
-            <ItemEditor
-              key={it.id}
-              item={it}
-              onSave={(fields) => saveEdit(it.id, fields)}
-              onCancel={() => setEditingId(null)}
-            />
-          ) : (
-            <article
-              key={it.id}
-              className={"card item rise" + (expandedId === it.id ? " open" : "")}
-              style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}
-              onClick={() => setExpandedId(expandedId === it.id ? null : it.id)}
-            >
-              <div className="item-row">
-                {it.image_url ? (
-                  <img
-                    className="thumb"
-                    src={it.image_url}
-                    alt=""
-                    onError={(e) => (e.target.style.display = "none")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setZoomed({ url: it.image_url });
-                    }}
-                  />
-                ) : (
-                  <div className="thumb ph">{(it.item_name || "?")[0]?.toUpperCase()}</div>
-                )}
-                <div className="grow">
-                  <div className="card-title">{it.item_name || "Unidentified"}</div>
-                  <div className="card-sub">
-                    {it.brand || "Unknown"}
-                    {it.release_year ? ` · ${it.release_year}` : ""}
-                  </div>
-                </div>
-                <div className="card-value">{money(it.estimated_value_usd)}</div>
-              </div>
-              <div className="item-more">
-                <div className="item-more-inner">
-                  {it.notable_details && <p className="item-notes">{it.notable_details}</p>}
-                  <div className="item-meta">
-                    {it.condition || "Condition unknown"} · {it.added}
-                    {it.edited ? " · edited" : it.market_label ? ` · ${it.market_label}` : " · AI estimate"}
-                  </div>
-                  <div className="item-actions">
-                    <button
-                      className="link"
+      {!itemsReady ? (
+        <div className="center">Loading…</div>
+      ) : (
+        <main className="list">
+          {items.map((it, idx) =>
+            editingId === it.id ? (
+              <ItemEditor
+                key={it.id}
+                item={it}
+                onSave={(fields) => saveEdit(it.id, fields)}
+                onCancel={() => setEditingId(null)}
+              />
+            ) : (
+              <article
+                key={it.id}
+                className={"card item rise" + (expandedId === it.id ? " open" : "")}
+                style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}
+                onClick={() => setExpandedId(expandedId === it.id ? null : it.id)}
+              >
+                <div className="item-row">
+                  {it.image_url ? (
+                    <img
+                      className="thumb"
+                      src={it.image_url}
+                      alt=""
+                      onError={(e) => (e.target.style.display = "none")}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setEditingId(it.id);
+                        openZoom(it);
                       }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="link danger"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeItem(it.id);
-                      }}
-                    >
-                      Remove
-                    </button>
+                    />
+                  ) : (
+                    <div className="thumb ph">{(it.item_name || "?")[0]?.toUpperCase()}</div>
+                  )}
+                  <div className="grow">
+                    <div className="card-title">{it.item_name || "Unidentified"}</div>
+                    <div className="card-sub">
+                      {it.brand || "Unknown"}
+                      {it.release_year ? ` · ${it.release_year}` : ""}
+                    </div>
+                  </div>
+                  <div className="card-value">{money(it.estimated_value_usd)}</div>
+                </div>
+                <div className="item-more">
+                  <div className="item-more-inner">
+                    {it.notable_details && <p className="item-notes">{it.notable_details}</p>}
+                    <div className="item-meta">
+                      {it.condition || "Condition unknown"} · {it.added}
+                      {it.edited ? " · edited" : it.market_label ? ` · ${it.market_label}` : " · AI estimate"}
+                    </div>
+                    <div className="item-actions">
+                      <button
+                        className="link"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingId(it.id);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="link danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeItem(it.id);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </article>
-          )
-        )}
-      </main>
+              </article>
+            )
+          )}
+        </main>
+      )}
 
-      {col.items.length === 0 && !busy && (
+      {itemsReady && items.length === 0 && !busy && (
         <div className="empty">
           <p>Add your first item.</p>
         </div>
       )}
 
-      <button className="link danger footer-del" onClick={removeCollection}>
-        Delete collection
-      </button>
+      {isOwner ? (
+        <button className="link danger footer-del" onClick={removeCollection}>
+          Delete collection
+        </button>
+      ) : (
+        <button className="link danger footer-del" onClick={leaveShared}>
+          Leave collection
+        </button>
+      )}
+
+      {sharing && cloud && (
+        <div className="sheet-backdrop" onClick={() => setSharing(false)}>
+          <div className="card share-sheet pop" onClick={(e) => e.stopPropagation()}>
+            <div className="card-title">Share “{col.name}”</div>
+            <p className="share-blurb">
+              Anyone with this code becomes a collector: they see every item,
+              can add their own, and the collection counts toward their totals
+              too.
+            </p>
+            <div className="join-code">{col.joinCode}</div>
+            <button className="btn dark" onClick={copyInvite}>
+              {copied ? "Link copied ✓" : "Copy invite link"}
+            </button>
+            <div className="settings-label">Collectors</div>
+            <div className="collectors">
+              {Object.entries(col.memberNames || {}).map(([uid, nm]) => (
+                <div key={uid} className="collector-row">
+                  <span className="collector-dot" />
+                  {nm}
+                  {uid === col.owner ? " · owner" : ""}
+                  {uid === user.uid ? " · you" : ""}
+                </div>
+              ))}
+            </div>
+            <button className="btn light" onClick={() => setSharing(false)}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {reveal && (
+        <div className={"reveal-backdrop" + (reveal.out ? " out" : "")}>
+          <div className="card reveal-card">
+            {reveal.item.image_url && (
+              <img className="reveal-img" src={reveal.item.image_url} alt="" />
+            )}
+            <div className="reveal-added">Added to {col.name}</div>
+            <div className="reveal-name">{reveal.item.item_name || "Unidentified"}</div>
+            <div className="card-sub">
+              {reveal.item.brand || "Unknown"}
+              {reveal.item.release_year ? ` · ${reveal.item.release_year}` : ""}
+            </div>
+            {reveal.item.notable_details && (
+              <p className="item-notes">{reveal.item.notable_details}</p>
+            )}
+            <div className="reveal-row">
+              <span className="reveal-value">{money(reveal.item.estimated_value_usd)}</span>
+              <span className="card-sub">{reveal.item.condition || ""}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {zoomed && (
         <div
@@ -621,14 +913,18 @@ function CollectionPage({ col, setData, onBack }) {
 /*  You page + settings                                                */
 /* ------------------------------------------------------------------ */
 
-function YouPage({ user, guest, data, theme, setTheme, onSignOut }) {
+function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
   const [showSettings, setShowSettings] = useState(false);
 
-  const totalValue = data.collections.reduce((s, c) => s + collectionTotal(c), 0);
-  const totalItems = data.collections.reduce((s, c) => s + c.items.length, 0);
-  const top = data.collections
-    .flatMap((c) => c.items)
-    .sort((a, b) => (b.estimated_value_usd || 0) - (a.estimated_value_usd || 0))[0];
+  const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
+  const totalItems = collections.reduce((s, c) => s + (c.itemCount || 0), 0);
+  const top = collections.reduce(
+    (best, c) =>
+      (c.topItemValue || 0) > (best?.value || 0)
+        ? { name: c.topItemName, value: c.topItemValue }
+        : best,
+    null
+  );
 
   if (showSettings) {
     return (
@@ -707,7 +1003,7 @@ function YouPage({ user, guest, data, theme, setTheme, onSignOut }) {
           <div className="stat-label">Total value</div>
         </div>
         <div className="stat card rise" style={{ animationDelay: "60ms" }}>
-          <div className="stat-num">{data.collections.length}</div>
+          <div className="stat-num">{collections.length}</div>
           <div className="stat-label">Collections</div>
         </div>
         <div className="stat card rise" style={{ animationDelay: "120ms" }}>
@@ -715,8 +1011,8 @@ function YouPage({ user, guest, data, theme, setTheme, onSignOut }) {
           <div className="stat-label">Items</div>
         </div>
         <div className="stat card rise" style={{ animationDelay: "180ms" }}>
-          <div className="stat-num small">{top ? top.item_name : "—"}</div>
-          <div className="stat-label">Top item{top ? ` · ${money(top.estimated_value_usd)}` : ""}</div>
+          <div className="stat-num small">{top ? top.name : "—"}</div>
+          <div className="stat-label">Top item{top ? ` · ${money(top.value)}` : ""}</div>
         </div>
       </div>
     </>

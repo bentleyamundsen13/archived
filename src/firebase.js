@@ -1,16 +1,24 @@
-// Firebase — powers accounts (Google + email) and cloud-synced collections.
+// Firebase — powers accounts (Google + email) and cloud-synced, SHAREABLE
+// collections.
 //
-// SETUP (one time, ~5 minutes — full steps in README.md):
-//   1. console.firebase.google.com -> Add project
-//   2. Build -> Authentication -> enable "Google" and "Email/Password"
-//   3. Build -> Firestore Database -> Create (production mode) -> set the
-//      security rules from README.md
-//   4. Project settings -> "Your apps" -> Web app -> copy the config object
-//      and paste it below, replacing the PASTE_ values.
+// Data model (one doc per thing, so collections can be shared and items can
+// hold full-quality photos without hitting Firestore's 1MB/doc limit):
+//   collections/{cid}              the collection: name, members, join code,
+//                                  and aggregate stats (count, total value)
+//   collections/{cid}/items/{id}   one item — display thumbnail lives here
+//   collections/{cid}/images/{id}  the item's full-size photo, fetched
+//                                  only when the user zooms in
+//   joinCodes/{CODE}               invite code -> collection id lookup
+//   users/{uid}                    legacy pre-sharing blob; migrated once
+//
+// Access control is enforced by Firestore security rules — see
+// firestore.rules in the repo root. Members of a collection can read and
+// write it; strangers can only add THEMSELVES to a collection's member
+// list, and finding the collection requires the invite code.
 //
 // These config values are NOT secrets — they're safe to ship in frontend
 // code. Access is controlled by the Firestore security rules, not by
-// hiding these strings. (Your GROQ key is different — that stays on Netlify.)
+// hiding these strings. (API keys for AI/pricing stay on Netlify.)
 
 import { initializeApp } from "firebase/app";
 import {
@@ -22,7 +30,23 @@ import {
   onAuthStateChanged,
   signOut,
 } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  deleteField,
+  collection,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  writeBatch,
+  arrayUnion,
+  arrayRemove,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD9xPySJe-fLNfgIkAr23PlqtN_GEbUKPs",
@@ -47,6 +71,8 @@ if (firebaseReady) {
   db = getFirestore(app);
 }
 
+/* ---------------- auth ---------------- */
+
 export function watchAuth(callback) {
   if (!firebaseReady) return () => {};
   return onAuthStateChanged(auth, callback);
@@ -69,13 +95,198 @@ export async function logOut() {
   if (auth) await signOut(auth);
 }
 
-// ---- per-user data: one document per user holding all collections ----
-
-export async function loadUserData(uid) {
-  const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? snap.data() : { collections: [] };
+function displayName(user) {
+  return user.displayName || user.email || "Collector";
 }
 
-export async function saveUserData(uid, data) {
-  await setDoc(doc(db, "users", uid), data);
+/* ---------------- invite codes ---------------- */
+// 8 chars, no ambiguous characters (0/O, 1/I/L), stored uppercase so
+// codes are case-insensitive. Uniqueness: the code IS the doc id, and
+// security rules only allow creating a code doc, never overwriting one.
+
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+function genCode() {
+  let s = "";
+  for (let i = 0; i < 8; i++) {
+    s += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  }
+  return s;
+}
+
+async function freshCode() {
+  let code = genCode();
+  for (let tries = 0; tries < 5; tries++) {
+    const taken = (await getDoc(doc(db, "joinCodes", code))).exists();
+    if (!taken) break;
+    code = genCode();
+  }
+  return code;
+}
+
+/* ---------------- collections ---------------- */
+
+// Aggregate stats stored on the collection doc so the home page and You
+// page never need to download every item. Recomputed client-side after
+// every mutation (the mutating client always has the full item list).
+export function computeAggregates(items) {
+  const totalValue = items.reduce(
+    (s, i) => s + (Number(i.estimated_value_usd) || 0),
+    0
+  );
+  const top = [...items].sort(
+    (a, b) => (b.estimated_value_usd || 0) - (a.estimated_value_usd || 0)
+  )[0];
+  return {
+    itemCount: items.length,
+    totalValue,
+    coverImage: items.find((i) => i.image_url)?.image_url || null,
+    topItemName: top?.item_name || null,
+    topItemValue: top?.estimated_value_usd || 0,
+  };
+}
+
+export async function createCollection(user, name, type) {
+  const code = await freshCode();
+  const cid = crypto.randomUUID();
+  const batch = writeBatch(db);
+  batch.set(doc(db, "collections", cid), {
+    name,
+    type,
+    owner: user.uid,
+    members: [user.uid],
+    memberNames: { [user.uid]: displayName(user) },
+    joinCode: code,
+    created: Date.now(),
+    ...computeAggregates([]),
+  });
+  batch.set(doc(db, "joinCodes", code), { collectionId: cid });
+  await batch.commit();
+  return cid;
+}
+
+export function watchCollections(uid, cb) {
+  const q = query(
+    collection(db, "collections"),
+    where("members", "array-contains", uid)
+  );
+  return onSnapshot(
+    q,
+    (snap) =>
+      cb(
+        snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (a.created || 0) - (b.created || 0))
+      ),
+    () => cb([])
+  );
+}
+
+export async function deleteCollectionDoc(cid) {
+  await deleteDoc(doc(db, "collections", cid));
+}
+
+export async function leaveCollection(cid, user) {
+  await updateDoc(doc(db, "collections", cid), {
+    members: arrayRemove(user.uid),
+    [`memberNames.${user.uid}`]: deleteField(),
+  });
+}
+
+export async function joinByCode(rawCode, user) {
+  const code = rawCode.trim().toUpperCase();
+  const snap = await getDoc(doc(db, "joinCodes", code));
+  if (!snap.exists()) throw new Error("invalid code");
+  const cid = snap.data().collectionId;
+  await updateDoc(doc(db, "collections", cid), {
+    members: arrayUnion(user.uid),
+    [`memberNames.${user.uid}`]: displayName(user),
+  });
+  return cid;
+}
+
+/* ---------------- items ---------------- */
+
+export async function addItemDoc(cid, item) {
+  await setDoc(doc(db, "collections", cid, "items", item.id), item);
+}
+
+export async function updateItemDoc(cid, itemId, fields) {
+  await updateDoc(doc(db, "collections", cid, "items", itemId), fields);
+}
+
+export async function deleteItemDoc(cid, itemId) {
+  await deleteDoc(doc(db, "collections", cid, "items", itemId));
+}
+
+export function watchItems(cid, cb) {
+  const q = query(
+    collection(db, "collections", cid, "items"),
+    orderBy("created", "desc")
+  );
+  return onSnapshot(
+    q,
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    () => cb([])
+  );
+}
+
+export async function setAggregates(cid, items) {
+  await updateDoc(doc(db, "collections", cid), computeAggregates(items));
+}
+
+/* ---------------- full-size item photos ---------------- */
+
+export async function setItemImage(cid, itemId, dataUrl) {
+  await setDoc(doc(db, "collections", cid, "images", itemId), { data: dataUrl });
+}
+
+export async function getItemImage(cid, itemId) {
+  const snap = await getDoc(doc(db, "collections", cid, "images", itemId));
+  return snap.exists() ? snap.data().data : null;
+}
+
+export async function deleteItemImage(cid, itemId) {
+  await deleteDoc(doc(db, "collections", cid, "images", itemId));
+}
+
+/* ---------------- one-time migration from the legacy blob ---------------- */
+// Pre-sharing, everything lived in users/{uid} as one big blob. On first
+// sign-in after this update, copy it into the new per-doc layout. The old
+// blob is left in place (marked migrated) as a safety net.
+
+export async function migrateIfNeeded(user) {
+  const ref = doc(db, "users", user.uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const d = snap.data();
+  if (!d.collections?.length || d.migratedV2) return;
+
+  for (const c of d.collections) {
+    const cid = c.id || crypto.randomUUID();
+    const code = await freshCode();
+    const items = c.items || [];
+    const now = Date.now();
+    const batch = writeBatch(db);
+    batch.set(doc(db, "collections", cid), {
+      name: c.name || "Collection",
+      type: c.type || "General",
+      owner: user.uid,
+      members: [user.uid],
+      memberNames: { [user.uid]: displayName(user) },
+      joinCode: code,
+      created: now,
+      ...computeAggregates(items),
+    });
+    batch.set(doc(db, "joinCodes", code), { collectionId: cid });
+    items.forEach((it, idx) => {
+      // Preserve order: items[0] was newest, so give it the largest stamp.
+      batch.set(doc(db, "collections", cid, "items", it.id || crypto.randomUUID()), {
+        ...it,
+        created: now - idx,
+      });
+    });
+    await batch.commit();
+  }
+  await setDoc(ref, { migratedV2: true }, { merge: true });
 }
