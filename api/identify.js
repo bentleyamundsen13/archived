@@ -1,5 +1,10 @@
 // Vercel Function: /api/identify
-// Same code as the Netlify function — this file just re-exports it so the
-// app runs identically on either host. The web-standard handler signature
-// (Request in, Response out) works on both.
-export { default } from "../netlify/functions/identify.js";
+// Runs the shared Netlify function through a Node<->web bridge so one
+// codebase serves both hosts. Allow up to 60s — the AI fallback chain can
+// take a few seconds and Vercel's default cap is 10s.
+import identifyHandler from "../netlify/functions/identify.js";
+import { toVercel } from "../lib/vercelHandler.js";
+
+export const config = { maxDuration: 60 };
+
+export default toVercel(identifyHandler);

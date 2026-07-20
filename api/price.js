@@ -1,4 +1,7 @@
 // Vercel Function: /api/price
-// Same code as the Netlify function — this file just re-exports it so the
-// app runs identically on either host.
-export { default } from "../netlify/functions/price.js";
+// Runs the shared Netlify function through a Node<->web bridge so one
+// codebase serves both hosts.
+import priceHandler from "../netlify/functions/price.js";
+import { toVercel } from "../lib/vercelHandler.js";
+
+export default toVercel(priceHandler);
