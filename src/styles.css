@@ -420,15 +420,28 @@ textarea.input { resize: vertical; }
 .reveal-backdrop.out { animation: lightboxIn 0.3s ease reverse forwards; }
 .reveal-card {
   width: min(88vw, 380px);
+  max-height: 86vh; overflow-y: auto;
   display: flex; flex-direction: column; gap: 6px;
   padding: 18px;
   border-radius: 20px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   animation: revealIn 0.45s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
+.reveal-backdrop.tappable { cursor: pointer; }
 .reveal-backdrop.out .reveal-card {
   animation: revealOut 0.32s cubic-bezier(0.5, 0, 0.75, 0.4) forwards;
 }
+.reveal-backdrop.out-detail { animation: lightboxIn 0.2s ease reverse forwards; }
+.reveal-backdrop.out-detail .reveal-card {
+  animation: revealClose 0.2s ease forwards;
+}
+@keyframes revealClose {
+  from { opacity: 1; }
+  to { opacity: 0; transform: scale(0.95); }
+}
+.reveal-img.zoomable { cursor: zoom-in; }
+.detail-actions { margin-top: 12px; }
+.btn.danger-text { color: var(--danger); }
 @keyframes revealIn {
   from { opacity: 0; transform: translateY(28px) scale(0.9); }
   to { opacity: 1; transform: none; }

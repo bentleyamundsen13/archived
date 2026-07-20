@@ -542,7 +542,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
+  const [detailClosing, setDetailClosing] = useState(false);
+  const [detailFull, setDetailFull] = useState(null);
   const [zoomed, setZoomed] = useState(null);
   const [reveal, setReveal] = useState(null);
   const [sharing, setSharing] = useState(false);
@@ -552,6 +554,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [colType, setColType] = useState("");
   const [cloudItems, setCloudItems] = useState(null);
   const revealTimers = useRef([]);
+  const detailIdRef = useRef(null);
 
   useEffect(() => {
     if (!cloud) return;
@@ -562,6 +565,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
   const items = cloud ? cloudItems || [] : col.items;
   const itemsReady = !cloud || cloudItems !== null;
+  const detailItem = detailId ? items.find((i) => i.id === detailId) : null;
   const isOwner = !cloud || col.owner === user?.uid;
   const total = items.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
 
@@ -743,6 +747,39 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     }
   }
 
+  // Tapping an item opens the same rich card that appears after adding.
+  async function openDetail(it) {
+    detailIdRef.current = it.id;
+    setDetailId(it.id);
+    setDetailClosing(false);
+    setDetailFull(null);
+    if (cloud) {
+      try {
+        const full = await getItemImage(col.id, it.id);
+        // Only apply if this detail is still the open one.
+        setDetailFull((prev) => (detailIdRef.current === it.id ? full : prev));
+      } catch {}
+    }
+  }
+
+  function closeDetail() {
+    detailIdRef.current = null;
+    setDetailClosing(true);
+    setTimeout(() => {
+      setDetailId(null);
+      setDetailClosing(false);
+      setDetailFull(null);
+    }, 220);
+  }
+
+  // For Edit/Remove: dismiss instantly so the editor/list is visible.
+  function closeDetailNow() {
+    detailIdRef.current = null;
+    setDetailId(null);
+    setDetailClosing(false);
+    setDetailFull(null);
+  }
+
   function copyInvite() {
     const link = `${window.location.origin}/?join=${col.joinCode}`;
     const text = `Join my “${col.name}” collection on Archived: ${link}`;
@@ -859,9 +896,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             ) : (
               <article
                 key={it.id}
-                className={"card item rise" + (expandedId === it.id ? " open" : "")}
+                className="card item rise"
                 style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}
-                onClick={() => setExpandedId(expandedId === it.id ? null : it.id)}
+                onClick={() => openDetail(it)}
               >
                 <div className="item-row">
                   {it.image_url ? (
@@ -886,35 +923,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                     </div>
                   </div>
                   <div className="card-value">{money(it.estimated_value_usd)}</div>
-                </div>
-                <div className="item-more">
-                  <div className="item-more-inner">
-                    {it.notable_details && <p className="item-notes">{it.notable_details}</p>}
-                    <div className="item-meta">
-                      {it.condition || "Condition unknown"} · {it.added}
-                      {it.edited ? " · edited" : it.market_label ? ` · ${it.market_label}` : " · AI estimate"}
-                    </div>
-                    <div className="item-actions">
-                      <button
-                        className="link"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingId(it.id);
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="link danger"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeItem(it.id);
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </article>
             )
@@ -987,6 +995,65 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             <div className="reveal-row">
               <span className="reveal-value">{money(reveal.item.estimated_value_usd)}</span>
               <span className="card-sub">{reveal.item.condition || ""}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detailItem && (
+        <div
+          className={"reveal-backdrop tappable" + (detailClosing ? " out-detail" : "")}
+          onClick={closeDetail}
+        >
+          <div className="card reveal-card" onClick={(e) => e.stopPropagation()}>
+            {(detailFull || detailItem.image_url) && (
+              <img
+                className="reveal-img zoomable"
+                src={detailFull || detailItem.image_url}
+                alt=""
+                onClick={() => openZoom(detailItem)}
+              />
+            )}
+            <div className="reveal-name">{detailItem.item_name || "Unidentified"}</div>
+            <div className="card-sub">
+              {detailItem.brand || "Unknown"}
+              {detailItem.release_year ? ` · ${detailItem.release_year}` : ""}
+            </div>
+            {detailItem.notable_details && (
+              <p className="item-notes">{detailItem.notable_details}</p>
+            )}
+            <div className="item-meta">
+              {detailItem.condition || "Condition unknown"} · {detailItem.added}
+              {detailItem.edited
+                ? " · edited"
+                : detailItem.market_label
+                ? ` · ${detailItem.market_label}`
+                : " · AI estimate"}
+            </div>
+            <div className="reveal-row">
+              <span className="reveal-value">{money(detailItem.estimated_value_usd)}</span>
+            </div>
+            <div className="row detail-actions">
+              <button
+                className="btn light"
+                onClick={() => {
+                  const id = detailItem.id;
+                  closeDetailNow();
+                  setEditingId(id);
+                }}
+              >
+                Edit
+              </button>
+              <button
+                className="btn light danger-text"
+                onClick={() => {
+                  const id = detailItem.id;
+                  closeDetailNow();
+                  removeItem(id);
+                }}
+              >
+                Remove
+              </button>
             </div>
           </div>
         </div>
