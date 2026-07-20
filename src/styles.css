@@ -377,7 +377,20 @@ textarea.input { resize: vertical; }
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--graphite); flex-shrink: 0;
 }
-.join-link { display: block; margin: 18px auto 0; }
+
+/* editable collection title + invite-code entry */
+.topbar-title-row { display: flex; align-items: center; gap: 4px; }
+.topbar-title-row .icon-btn { color: var(--graphite); }
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  font-weight: 700;
+}
+.code-input::placeholder {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
 
 /* toast */
 .toast {

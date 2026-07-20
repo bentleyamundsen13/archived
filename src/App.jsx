@@ -10,6 +10,7 @@ import {
   watchCollections,
   watchItems,
   createCollection,
+  updateCollectionMeta,
   deleteCollectionDoc,
   leaveCollection,
   joinByCode,
@@ -174,14 +175,14 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(""), 4000);
   }
 
-  async function joinWithCode() {
-    const code = window.prompt("Enter the 8-character invite code:");
-    if (!code) return;
+  async function joinWithCode(code) {
     try {
       await joinByCode(code, user);
       showToast("Joined! The shared collection is now in your list.");
+      return true;
     } catch {
       showToast("Couldn't join with that code — double-check it.");
+      return false;
     }
   }
 
@@ -216,7 +217,7 @@ export default function App() {
               cloud={cloud}
               user={user}
               setGuestData={setGuestData}
-              onJoinCode={cloud ? joinWithCode : null}
+              onJoin={cloud ? joinWithCode : null}
               onOpen={setOpenId}
             />
           </div>
@@ -391,11 +392,24 @@ function GoogleMark() {
 /*  Collections home                                                   */
 /* ------------------------------------------------------------------ */
 
-function CollectionsHome({ collections, cloud, user, setGuestData, onJoinCode, onOpen }) {
+function CollectionsHome({ collections, cloud, user, setGuestData, onJoin, onOpen }) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+
+  async function join() {
+    setBusy(true);
+    try {
+      if (await onJoin(code.trim())) {
+        setCreating(false);
+        setCode("");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function create() {
     if (cloud) {
@@ -455,6 +469,28 @@ function CollectionsHome({ collections, cloud, user, setGuestData, onJoinCode, o
               {busy ? <span className="spinner" /> : "Create"}
             </button>
           </div>
+          {onJoin && (
+            <>
+              <div className="divider">
+                <span>or</span>
+              </div>
+              <label className="label">Join a shared collection</label>
+              <input
+                className="input code-input"
+                placeholder="Invite code"
+                maxLength={8}
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+              />
+              <button
+                className="btn dark"
+                disabled={code.trim().length !== 8 || busy}
+                onClick={join}
+              >
+                {busy ? <span className="spinner" /> : "Join collection"}
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -493,11 +529,6 @@ function CollectionsHome({ collections, cloud, user, setGuestData, onJoinCode, o
         ))}
       </main>
 
-      {onJoinCode && (
-        <button className="btn text join-link" onClick={onJoinCode}>
-          Have an invite code? Join a shared collection
-        </button>
-      )}
     </>
   );
 }
@@ -516,6 +547,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [reveal, setReveal] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editingCol, setEditingCol] = useState(false);
+  const [colName, setColName] = useState("");
+  const [colType, setColType] = useState("");
   const [cloudItems, setCloudItems] = useState(null);
   const revealTimers = useRef([]);
 
@@ -679,6 +713,20 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     }
   }
 
+  async function saveColEdit() {
+    const fields = { name: colName.trim(), type: colType.trim() || "General" };
+    setEditingCol(false);
+    if (cloud) {
+      try {
+        await updateCollectionMeta(col.id, fields);
+      } catch {
+        showToast("Couldn't save the collection details — check your connection.");
+      }
+    } else {
+      patchGuest((c) => ({ ...c, ...fields }));
+    }
+  }
+
   function closeZoom() {
     setZoomed((z) => (z ? { ...z, closing: true } : z));
     setTimeout(() => setZoomed(null), 160);
@@ -714,7 +762,22 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       </button>
       <header className="topbar">
         <div>
-          <h1>{col.name}</h1>
+          <div className="topbar-title-row">
+            <h1>{col.name}</h1>
+            <button
+              className="icon-btn"
+              aria-label="Edit collection"
+              onClick={() => {
+                setColName(col.name);
+                setColType(col.type);
+                setEditingCol(true);
+              }}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+            </button>
+          </div>
           <div className="card-sub">
             {col.type} · {items.length}
             {cloud && col.members?.length > 1 ? ` · ${col.members.length} collectors` : ""}
@@ -724,6 +787,33 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
           <div className="topbar-total-num">{money(total)}</div>
         </div>
       </header>
+
+      {editingCol && (
+        <div className="card form pop">
+          <label className="label">Collection name</label>
+          <input
+            className="input"
+            autoFocus
+            value={colName}
+            onChange={(e) => setColName(e.target.value)}
+          />
+          <label className="label">Type</label>
+          <input
+            className="input"
+            placeholder="Records, Cards, Sneakers…"
+            value={colType}
+            onChange={(e) => setColType(e.target.value)}
+          />
+          <div className="row">
+            <button className="btn light" onClick={() => setEditingCol(false)}>
+              Cancel
+            </button>
+            <button className="btn dark" disabled={!colName.trim()} onClick={saveColEdit}>
+              Save
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="add-row">
         <button className="btn dark big grow" disabled={busy} onClick={() => camRef.current?.click()}>

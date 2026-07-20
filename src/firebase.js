@@ -182,6 +182,10 @@ export function watchCollections(uid, cb) {
   );
 }
 
+export async function updateCollectionMeta(cid, fields) {
+  await updateDoc(doc(db, "collections", cid), fields);
+}
+
 export async function deleteCollectionDoc(cid) {
   await deleteDoc(doc(db, "collections", cid));
 }
