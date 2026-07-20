@@ -142,7 +142,12 @@ export default function App() {
     (async () => {
       try {
         await migrateIfNeeded(user);
-      } catch {}
+      } catch (e) {
+        console.error("Migration of older collections failed:", e);
+        showToast(
+          "Couldn't restore older collections: " + (e?.message || String(e))
+        );
+      }
       if (!dead) unsub = watchCollections(user.uid, setCols);
     })();
     return () => {

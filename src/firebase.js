@@ -255,17 +255,39 @@ export async function deleteItemImage(cid, itemId) {
 // sign-in after this update, copy it into the new per-doc layout. The old
 // blob is left in place (marked migrated) as a safety net.
 
+// Firestore rejects any doc containing `undefined` values; a JSON round
+// trip strips them (legacy items can carry them).
+function scrub(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
 export async function migrateIfNeeded(user) {
   const ref = doc(db, "users", user.uid);
   const snap = await getDoc(ref);
-  if (!snap.exists()) return;
+  if (!snap.exists()) {
+    console.log("[migrate] no legacy data doc for", user.uid);
+    return;
+  }
   const d = snap.data();
-  if (!d.collections?.length || d.migratedV2) return;
+  if (!d.collections?.length || d.migratedV2) {
+    console.log(
+      "[migrate] nothing to do — legacy collections:",
+      d.collections?.length || 0,
+      "already migrated:",
+      !!d.migratedV2
+    );
+    return;
+  }
+  console.log("[migrate] migrating", d.collections.length, "collections");
 
   for (const c of d.collections) {
     const cid = c.id || crypto.randomUUID();
     // Re-runs after a partial failure skip collections already copied.
-    if ((await getDoc(doc(db, "collections", cid))).exists()) continue;
+    if ((await getDoc(doc(db, "collections", cid))).exists()) {
+      console.log("[migrate] already copied:", c.name);
+      continue;
+    }
+    console.log("[migrate] copying:", c.name, "with", c.items?.length || 0, "items");
     const code = await freshCode();
     const items = c.items || [];
     const now = Date.now();
@@ -293,7 +315,7 @@ export async function migrateIfNeeded(user) {
         // Preserve order: items[0] was newest, so give it the largest stamp.
         batch.set(
           doc(db, "collections", cid, "items", it.id || crypto.randomUUID()),
-          { ...it, created: now - (i + idx) }
+          scrub({ ...it, created: now - (i + idx) })
         );
       });
       await batch.commit();
