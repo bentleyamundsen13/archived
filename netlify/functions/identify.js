@@ -1,9 +1,35 @@
 // Netlify Function: /.netlify/functions/identify
-// Runs on Netlify's servers — GEMINI_API_KEY lives here, never in the browser.
+// Runs on Netlify's servers — API keys (GEMINI_API_KEY, GROQ_API_KEY) live
+// here, never in the browser.
 
-// Stable models first (generous free quotas). The "-latest" alias is last
-// because it can point at preview models with tiny free limits.
-const MODELS = ["gemini-3-flash", "gemini-2.5-flash", "gemini-flash-latest"];
+// Every model has its OWN free-tier quota, and Gemini and Groq are separate
+// services with separate free tiers — so this list is real extra capacity,
+// not just error handling. Unknown model ids return 404 and are skipped.
+const PROVIDERS = [
+  {
+    name: "Gemini",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    keyEnv: "GEMINI_API_KEY",
+    thinking: true,
+    models: [
+      "gemini-3-flash",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-flash-latest",
+      "gemini-flash-lite-latest",
+    ],
+  },
+  {
+    name: "Groq",
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    keyEnv: "GROQ_API_KEY",
+    thinking: false,
+    models: [
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+      "meta-llama/llama-4-maverick-17b-128e-instruct",
+    ],
+  },
+];
 
 const JSON_RULES =
   "Respond ONLY with a JSON object with exactly these keys: " +
@@ -17,15 +43,14 @@ const JSON_RULES =
   "No markdown, no explanation, no code fences — just the raw JSON object. " +
   "If unsure about anything, give your best guess and set value_confidence to 'low'.";
 
-async function callGroq(key, prompt, mime, imageBase64, useJsonMode, model) {
+async function callModel(provider, key, model, prompt, mime, imageBase64, useJsonMode) {
   const body = {
     model,
     temperature: 0.2,
-    // Gemini Flash is a "thinking" model: it spends output tokens on
-    // internal reasoning first. Keep that short and leave plenty of room
-    // so the JSON answer never gets cut off.
-    reasoning_effort: "low",
-    max_tokens: 4096,
+    // Thinking models (Gemini Flash) spend output tokens on internal
+    // reasoning first — keep that short but leave room so the JSON answer
+    // never gets cut off. Non-thinking models just need the JSON.
+    max_tokens: provider.thinking ? 4096 : 1024,
     messages: [
       {
         role: "user",
@@ -39,9 +64,10 @@ async function callGroq(key, prompt, mime, imageBase64, useJsonMode, model) {
       },
     ],
   };
+  if (provider.thinking) body.reasoning_effort = "low";
   if (useJsonMode) body.response_format = { type: "json_object" };
 
-  return fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+  return fetch(provider.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -66,10 +92,9 @@ export default async (req) => {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
   }
 
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) {
+  if (!PROVIDERS.some((p) => process.env[p.keyEnv])) {
     return new Response(
-      JSON.stringify({ error: "GEMINI_API_KEY is not set on the server." }),
+      JSON.stringify({ error: "No AI API key is set on the server." }),
       { status: 500 }
     );
   }
@@ -93,36 +118,50 @@ export default async (req) => {
 
   try {
     let resp = null;
-    for (const model of MODELS) {
-      // Attempt: strict JSON mode
-      resp = await callGroq(key, prompt, mime || "image/jpeg", imageBase64, true, model);
+    outer: for (const provider of PROVIDERS) {
+      const key = process.env[provider.keyEnv];
+      if (!key) continue;
+      for (const model of provider.models) {
+        // Attempt: strict JSON mode
+        resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, true);
 
-      // Per-minute rate limit: wait a moment and retry the same model once
-      if (resp.status === 429) {
-        await new Promise((r) => setTimeout(r, 3000));
-        resp = await callGroq(key, prompt, mime || "image/jpeg", imageBase64, true, model);
+        // Per-minute rate limit: wait a moment and retry the same model once
+        if (resp.status === 429) {
+          await new Promise((r) => setTimeout(r, 3000));
+          resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, true);
+        }
+
+        // Still limited? That quota is spent — the NEXT model has its own.
+        if (resp.status === 429) continue;
+
+        // JSON-mode rejection: retry without it and dig the JSON out ourselves
+        if (!resp.ok && resp.status === 400) {
+          resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, false);
+        }
+
+        // Model retired or unknown: fall through to the next model in the list
+        if (resp.status === 404) continue;
+        break outer;
       }
-
-      // JSON-mode rejection: retry without it and dig the JSON out ourselves
-      if (!resp.ok && resp.status === 400) {
-        resp = await callGroq(key, prompt, mime || "image/jpeg", imageBase64, false, model);
-      }
-
-      // Model retired or unknown: fall through to the next model in the list
-      if (resp.status === 404) continue;
-      break;
     }
 
-    if (!resp.ok) {
+    if (!resp || !resp.ok) {
       let detail = "";
       try {
         const errJson = await resp.json();
         detail = errJson?.error?.message || JSON.stringify(errJson).slice(0, 300);
       } catch {
-        detail = (await resp.text()).slice(0, 300);
+        try {
+          detail = (await resp.text()).slice(0, 300);
+        } catch {}
       }
+      const status = resp ? resp.status : "?";
+      const hint =
+        resp && resp.status === 429
+          ? " All free AI quotas are used up for now — try again in a few minutes."
+          : "";
       return new Response(
-        JSON.stringify({ error: `Gemini error ${resp.status}: ${detail}` }),
+        JSON.stringify({ error: `AI error ${status}: ${detail}${hint}` }),
         { status: 502 }
       );
     }
