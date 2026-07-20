@@ -67,14 +67,24 @@ async function callModel(provider, key, model, prompt, mime, imageBase64, useJso
   if (provider.thinking) body.reasoning_effort = "low";
   if (useJsonMode) body.response_format = { type: "json_object" };
 
-  return fetch(provider.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify(body),
-  });
+  // Node's global fetch has NO default timeout — a stalled upstream would
+  // hang the whole function until the platform kills it. Cap each call so
+  // a slow model aborts and we fall through to the next one.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    return await fetch(provider.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Pull the first {...} object out of text that may have extra words around it.
@@ -88,6 +98,22 @@ function extractJson(text) {
 }
 
 export default async (req) => {
+  // Fast health check: /api/identify?diag=1 — confirms the deploy is live
+  // and which AI providers have keys configured, without doing any work.
+  try {
+    const u = new URL(req.url);
+    if (req.method === "GET" && u.searchParams.get("diag")) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          version: "bridge2",
+          providers: PROVIDERS.filter((p) => process.env[p.keyEnv]).map((p) => p.name),
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+  } catch {}
+
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405 });
   }
@@ -122,12 +148,18 @@ export default async (req) => {
       const key = process.env[provider.keyEnv];
       if (!key) continue;
       for (const model of provider.models) {
-        // Attempt: strict JSON mode
-        resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, true);
+        try {
+          // Attempt: strict JSON mode
+          resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, true);
 
-        // JSON-mode rejection: retry without it and dig the JSON out ourselves
-        if (!resp.ok && resp.status === 400) {
-          resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, false);
+          // JSON-mode rejection: retry without it and dig the JSON out ourselves
+          if (!resp.ok && resp.status === 400) {
+            resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, false);
+          }
+        } catch {
+          // Network error or timeout abort — try the next model.
+          resp = null;
+          continue;
         }
 
         if (resp.ok) break outer;
