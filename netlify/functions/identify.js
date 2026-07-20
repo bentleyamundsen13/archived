@@ -125,23 +125,16 @@ export default async (req) => {
         // Attempt: strict JSON mode
         resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, true);
 
-        // Per-minute rate limit: wait a moment and retry the same model once
-        if (resp.status === 429) {
-          await new Promise((r) => setTimeout(r, 3000));
-          resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, true);
-        }
-
-        // Still limited? That quota is spent — the NEXT model has its own.
-        if (resp.status === 429) continue;
-
         // JSON-mode rejection: retry without it and dig the JSON out ourselves
         if (!resp.ok && resp.status === 400) {
           resp = await callModel(provider, key, model, prompt, mime || "image/jpeg", imageBase64, false);
         }
 
-        // Model retired or unknown: fall through to the next model in the list
-        if (resp.status === 404) continue;
-        break outer;
+        if (resp.ok) break outer;
+        // Anything else — 429 quota spent, 503 model overloaded, 404 model
+        // retired — the next model has its own quota and capacity. No
+        // sleep-and-retry: Netlify cuts functions off at 10s, and with this
+        // many fallbacks, moving on beats waiting.
       }
     }
 
@@ -159,7 +152,9 @@ export default async (req) => {
       const hint =
         resp && resp.status === 429
           ? " All free AI quotas are used up for now — try again in a few minutes."
-          : "";
+          : resp && resp.status >= 500
+            ? " The AI services are busy right now — try again in a minute."
+            : "";
       return new Response(
         JSON.stringify({ error: `AI error ${status}: ${detail}${hint}` }),
         { status: 502 }
