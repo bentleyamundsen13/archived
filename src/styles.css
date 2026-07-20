@@ -81,7 +81,7 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .screen, .rise, .pop { animation: none; }
+  .screen, .rise, .pop, .lightbox, .lightbox img { animation: none; }
   .item-more { transition: none; }
 }
 
@@ -208,6 +208,35 @@ textarea.input { resize: vertical; }
   color: var(--graphite); font-weight: 800; font-size: 19px;
 }
 .thumb-stack { flex-shrink: 0; }
+
+/* tap a thumbnail to zoom it; tap again to put it back */
+.item .thumb:not(.ph) { cursor: zoom-in; }
+
+.lightbox {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center;
+  background: rgba(28, 30, 33, 0.6);
+  backdrop-filter: blur(3px);
+  cursor: zoom-out;
+  animation: lightboxIn 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.lightbox img {
+  max-width: min(90vw, 480px);
+  max-height: 75vh;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  animation: lightboxZoom 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.lightbox.closing { animation: lightboxIn 0.16s ease reverse forwards; }
+.lightbox.closing img { animation: lightboxZoom 0.16s ease reverse forwards; }
+@keyframes lightboxIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes lightboxZoom {
+  from { transform: scale(0.35); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
 
 /* items: collapsed row + smooth expand */
 .item { cursor: pointer; }

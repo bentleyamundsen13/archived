@@ -407,6 +407,12 @@ function CollectionPage({ col, setData, onBack }) {
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [zoomed, setZoomed] = useState(null);
+
+  function closeZoom() {
+    setZoomed((z) => (z ? { ...z, closing: true } : z));
+    setTimeout(() => setZoomed(null), 160);
+  }
 
   function patchCollection(fn) {
     setData((d) => ({
@@ -533,7 +539,16 @@ function CollectionPage({ col, setData, onBack }) {
             >
               <div className="item-row">
                 {it.image_url ? (
-                  <img className="thumb" src={it.image_url} alt="" onError={(e) => (e.target.style.display = "none")} />
+                  <img
+                    className="thumb"
+                    src={it.image_url}
+                    alt=""
+                    onError={(e) => (e.target.style.display = "none")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setZoomed({ url: it.image_url });
+                    }}
+                  />
                 ) : (
                   <div className="thumb ph">{(it.item_name || "?")[0]?.toUpperCase()}</div>
                 )}
@@ -589,6 +604,15 @@ function CollectionPage({ col, setData, onBack }) {
       <button className="link danger footer-del" onClick={removeCollection}>
         Delete collection
       </button>
+
+      {zoomed && (
+        <div
+          className={"lightbox" + (zoomed.closing ? " closing" : "")}
+          onClick={closeZoom}
+        >
+          <img src={zoomed.url} alt="" />
+        </div>
+      )}
     </>
   );
 }
