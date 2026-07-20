@@ -283,7 +283,15 @@ export async function migrateIfNeeded(user) {
   for (const c of d.collections) {
     const cid = c.id || crypto.randomUUID();
     // Re-runs after a partial failure skip collections already copied.
-    if ((await getDoc(doc(db, "collections", cid))).exists()) {
+    // Rules DENY reads of docs that don't exist (there's no member list
+    // to evaluate), so "permission denied" here means "not copied yet".
+    let alreadyCopied = false;
+    try {
+      alreadyCopied = (await getDoc(doc(db, "collections", cid))).exists();
+    } catch {
+      alreadyCopied = false;
+    }
+    if (alreadyCopied) {
       console.log("[migrate] already copied:", c.name);
       continue;
     }
