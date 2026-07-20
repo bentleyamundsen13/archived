@@ -32,7 +32,7 @@ const money = (n) =>
     maximumFractionDigits: 0,
   });
 
-function resizeImage(file, maxSide = 1024) {
+function resizeImage(file, maxSide = 1024, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -41,7 +41,7 @@ function resizeImage(file, maxSide = 1024) {
       canvas.width = Math.round(img.width * scale);
       canvas.height = Math.round(img.height * scale);
       canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+      resolve(canvas.toDataURL("image/jpeg", quality).split(",")[1]);
     };
     img.onerror = () => reject(new Error("Could not read that photo"));
     img.src = URL.createObjectURL(file);
@@ -407,7 +407,6 @@ function CollectionPage({ col, setData, onBack }) {
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
-  const [findingId, setFindingId] = useState(null);
 
   function patchCollection(fn) {
     setData((d) => ({
@@ -434,6 +433,12 @@ function CollectionPage({ col, setData, onBack }) {
         id: crypto.randomUUID(),
         added: new Date().toISOString().slice(0, 10),
       };
+      // The card image is the user's own photo, stored as a small
+      // thumbnail — all items share one Firestore doc, so keep it tiny.
+      try {
+        const thumb = await resizeImage(file, 256, 0.7);
+        item.image_url = "data:image/jpeg;base64," + thumb;
+      } catch {}
       try {
         const q = [item.brand, item.item_name].filter(Boolean).join(" ").trim();
         if (q) {
@@ -443,7 +448,7 @@ function CollectionPage({ col, setData, onBack }) {
           );
           if (pr.ok) {
             const p = await pr.json();
-            if (p.image) item.image_url = p.image;
+            if (p.image && !item.image_url) item.image_url = p.image;
             if (p.value) {
               item.estimated_value_usd = p.value;
               item.value_source = "market";
@@ -457,29 +462,6 @@ function CollectionPage({ col, setData, onBack }) {
       setError(e.message || "Something went wrong — try another photo.");
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function findImage(it) {
-    const q = [it.brand, it.item_name].filter(Boolean).join(" ").trim();
-    if (!q || findingId) return;
-    setFindingId(it.id);
-    try {
-      const res = await fetch(
-        "/.netlify/functions/price?imageonly=1&q=" + encodeURIComponent(q) +
-          "&type=" + encodeURIComponent(col.type || "")
-      );
-      if (res.ok) {
-        const p = await res.json();
-        if (p.image) {
-          patchCollection((c) => ({
-            ...c,
-            items: c.items.map((i) => (i.id === it.id ? { ...i, image_url: p.image } : i)),
-          }));
-        }
-      }
-    } catch {} finally {
-      setFindingId(null);
     }
   }
 
@@ -572,18 +554,6 @@ function CollectionPage({ col, setData, onBack }) {
                     {it.edited ? " · edited" : it.market_label ? ` · ${it.market_label}` : " · AI estimate"}
                   </div>
                   <div className="item-actions">
-                    {!it.image_url && (
-                      <button
-                        className="link"
-                        disabled={findingId === it.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          findImage(it);
-                        }}
-                      >
-                        {findingId === it.id ? "Finding…" : "Find image"}
-                      </button>
-                    )}
                     <button
                       className="link"
                       onClick={(e) => {

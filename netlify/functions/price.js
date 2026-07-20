@@ -20,22 +20,29 @@ function trimOutliers(prices) {
   return prices;
 }
 
-/* ---------------- Google Custom Search (product images) ---------------- */
-// Free tier is 100 searches/day, so exactly one call per request, no retries.
+/* ---------------- SerpAPI Google Images (product images) ---------------- */
+// Free tier is 100 searches/MONTH, so exactly one call per request, no retries.
+// We prefer the gstatic thumbnail over the original image: originals live on
+// retailer sites that often block hotlinking, while gstatic always renders,
+// and the app only shows small thumbs anyway.
 
-async function googleImage(q, key, cx) {
+async function serpApiImage(q, key) {
   const params = new URLSearchParams({
-    key,
-    cx,
-    searchType: "image",
+    engine: "google_images",
+    api_key: key,
     num: "5",
     q: q + " product photo",
   });
-  const resp = await fetch("https://www.googleapis.com/customsearch/v1?" + params);
+  const resp = await fetch("https://serpapi.com/search.json?" + params);
   if (!resp.ok) return null;
-  const items = (await resp.json()).items || [];
-  const hit = items.find((it) => typeof it.link === "string" && it.link.startsWith("https://"));
-  return hit?.link || null;
+  const results = (await resp.json()).images_results || [];
+  for (const r of results.slice(0, 5)) {
+    const pick = [r.thumbnail, r.original].find(
+      (u) => typeof u === "string" && u.startsWith("https://")
+    );
+    if (pick) return pick;
+  }
+  return null;
 }
 
 /* ---------------- Discogs ---------------- */
@@ -170,19 +177,18 @@ export default async (req) => {
   const reverbToken = process.env.REVERB_TOKEN;
   const ebayId = process.env.EBAY_CLIENT_ID;
   const ebaySecret = process.env.EBAY_CLIENT_SECRET;
-  const googleKey = process.env.GOOGLE_SEARCH_API_KEY;
-  const googleCx = process.env.GOOGLE_CSE_ID;
+  const serpKey = process.env.SERPAPI_KEY;
 
-  // Google image lookup — never allowed to break pricing.
-  let googleImg = null;
-  if (googleKey && googleCx) {
+  // Product image lookup — never allowed to break pricing.
+  let productImg = null;
+  if (serpKey) {
     try {
-      googleImg = await googleImage(q, googleKey, googleCx);
+      productImg = await serpApiImage(q, serpKey);
     } catch {}
   }
 
   if (url.searchParams.get("imageonly")) {
-    return new Response(JSON.stringify({ image: googleImg }), {
+    return new Response(JSON.stringify({ image: productImg }), {
       headers: { "Content-Type": "application/json" },
     });
   }
@@ -196,8 +202,8 @@ export default async (req) => {
   if (ebayId && ebaySecret) attempts.push(() => ebayPrice(q, ebayId, ebaySecret));
 
   if (attempts.length === 0) {
-    if (googleImg) {
-      return new Response(JSON.stringify({ value: null, image: googleImg }), {
+    if (productImg) {
+      return new Response(JSON.stringify({ value: null, image: productImg }), {
         headers: { "Content-Type": "application/json" },
       });
     }
@@ -213,7 +219,7 @@ export default async (req) => {
       if (result) {
         if (!firstImage && result.image) firstImage = result.image;
         if (result.value) {
-          result.image = googleImg || result.image || firstImage;
+          result.image = productImg || result.image || firstImage;
           return new Response(JSON.stringify(result), {
             headers: { "Content-Type": "application/json" },
           });
@@ -222,7 +228,7 @@ export default async (req) => {
     } catch {}
   }
 
-  return new Response(JSON.stringify({ value: null, image: googleImg || firstImage }), {
+  return new Response(JSON.stringify({ value: null, image: productImg || firstImage }), {
     headers: { "Content-Type": "application/json" },
   });
 };
