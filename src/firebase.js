@@ -31,7 +31,7 @@ import {
   signOut,
 } from "firebase/auth";
 import {
-  getFirestore,
+  initializeFirestore,
   doc,
   getDoc,
   setDoc,
@@ -68,7 +68,11 @@ let db = null;
 if (firebaseReady) {
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
+  // Auto-detect long-polling: Firestore's default WebChannel streaming is
+  // often broken by mobile Safari and some mobile networks/proxies, which
+  // hangs every read at "Loading…". This falls back to long-polling there
+  // while keeping fast streaming where it works (desktop).
+  db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
 }
 
 /* ---------------- auth ---------------- */
