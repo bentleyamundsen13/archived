@@ -587,7 +587,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     setError("");
     try {
       const imageBase64 = await resizeImage(file);
-      const res = await fetch("/.netlify/functions/identify", {
+      const res = await fetch("/api/identify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category: col.type, imageBase64, mime: "image/jpeg" }),
@@ -613,7 +613,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
         const q = [item.brand, item.item_name].filter(Boolean).join(" ").trim();
         if (q) {
           const pr = await fetch(
-            "/.netlify/functions/price?q=" + encodeURIComponent(q) +
+            "/api/price?q=" + encodeURIComponent(q) +
               "&type=" + encodeURIComponent(col.type || "")
           );
           if (pr.ok) {

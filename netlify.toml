@@ -9,3 +9,10 @@
 
 [functions]
   directory = "netlify/functions"
+
+# The frontend calls host-neutral /api/* paths so the same code runs on
+# Netlify and Vercel. On Netlify, map those to the functions.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
