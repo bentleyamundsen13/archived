@@ -51,6 +51,14 @@ const money = (n) =>
     maximumFractionDigits: 0,
   });
 
+// Compact form for tight spots like the donut center: $1.3M, $45K, $322.
+const compactMoney = (n) => {
+  n = Number(n || 0);
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e4) return "$" + Math.round(n / 1e3) + "K";
+  return "$" + Math.round(n).toLocaleString("en-US");
+};
+
 function resizeImage(file, maxSide = 1024, quality = 0.85) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -1408,6 +1416,34 @@ function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
     null
   );
 
+  // Value contributed by each collection type, biggest first. Beyond 5 types
+  // the rest fold into "Other" so the donut stays readable; colors are
+  // assigned in fixed palette order (never cycled).
+  const byType = {};
+  for (const c of collections) {
+    const t = (c.type || "General").trim() || "General";
+    byType[t] = (byType[t] || 0) + (c.totalValue || 0);
+  }
+  const ranked = Object.entries(byType)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1]);
+  let typeSlices;
+  if (ranked.length > 6) {
+    const head = ranked.slice(0, 5);
+    const otherVal = ranked.slice(5).reduce((s, [, v]) => s + v, 0);
+    typeSlices = [
+      ...head.map(([name, value], i) => ({ name, value, color: `var(--cat-${i + 1})` })),
+      { name: "Other", value: otherVal, color: "var(--cat-other)" },
+    ];
+  } else {
+    typeSlices = ranked.map(([name, value], i) => ({
+      name,
+      value,
+      color: `var(--cat-${i + 1})`,
+    }));
+  }
+  const showPie = typeSlices.length >= 2;
+
   if (showSettings) {
     return (
       <div className="screen" key="settings">
@@ -1497,7 +1533,69 @@ function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
           <div className="stat-label">Top item{top ? ` · ${money(top.value)}` : ""}</div>
         </div>
       </div>
+
+      {showPie && (
+        <div className="card pie-card rise" style={{ animationDelay: "220ms" }}>
+          <div className="pie-card-label">Value by type</div>
+          <ValuePieChart slices={typeSlices} total={totalValue} />
+        </div>
+      )}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Value-by-type donut                                                */
+/* ------------------------------------------------------------------ */
+
+function ValuePieChart({ slices, total }) {
+  const gap = slices.length > 1 ? 1.4 : 0; // 2px surface gap between slices
+  let cum = 0;
+  const segs = slices.map((s) => {
+    const pct = total > 0 ? (s.value / total) * 100 : 0;
+    const seg = { ...s, pct, start: cum, dash: Math.max(pct - gap, 0.4) };
+    cum += pct;
+    return seg;
+  });
+
+  return (
+    <div className="pie-wrap">
+      <svg className="pie" viewBox="0 0 120 120" role="img" aria-label="Value by collection type">
+        <g transform="rotate(-90 60 60)">
+          {segs.map((s) => (
+            <circle
+              key={s.name}
+              cx="60"
+              cy="60"
+              r="42"
+              fill="none"
+              stroke={s.color}
+              strokeWidth="15"
+              pathLength="100"
+              strokeDasharray={`${s.dash} ${100 - s.dash}`}
+              transform={`rotate(${s.start * 3.6} 60 60)`}
+            />
+          ))}
+        </g>
+        <text x="60" y="58" className="pie-total" textAnchor="middle">
+          {compactMoney(total)}
+        </text>
+        <text x="60" y="72" className="pie-total-label" textAnchor="middle">
+          Total
+        </text>
+      </svg>
+      <div className="pie-legend">
+        {segs.map((s) => (
+          <div className="pie-legend-row" key={s.name}>
+            <span className="pie-dot" style={{ background: s.color }} />
+            <span className="pie-legend-name">{s.name}</span>
+            <span className="pie-legend-val">
+              {money(s.value)} · {Math.round(s.pct)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
