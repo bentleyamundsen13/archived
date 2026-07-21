@@ -932,6 +932,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   // Add another photo to the open item.
   async function addPhotoToItem(file) {
     if (!file || !detailItem) return;
+    if (detailPhotos.filter((p) => p.id !== "thumb").length >= 5) {
+      showToast("Up to 5 photos per item.");
+      return;
+    }
     setPhotoBusy(true);
     try {
       const full = "data:image/jpeg;base64," + (await resizeImage(file, 1024, 0.72));
@@ -1310,7 +1314,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
           <div className="card reveal-card" onClick={(e) => e.stopPropagation()}>
             <PhotoCarousel
               photos={detailPhotos}
-              mainId={detailItem.mainPhotoId}
+              mainId={
+                detailItem.mainPhotoId ||
+                detailPhotos.find((p) => p.id !== "thumb")?.id
+              }
               onZoom={(url) => setZoomed({ url })}
               onSetMain={makeMainPhoto}
               onRemovePhoto={removePhoto}
@@ -1528,7 +1535,7 @@ function PhotoCarousel({ photos, mainId, onZoom, onSetMain, onRemovePhoto, onAdd
             />
             {real(p) && (
               <button
-                className={"photo-star" + (p.id === mainId || photos.length === 1 ? " active" : "")}
+                className={"photo-star" + (p.id === mainId ? " active" : "")}
                 aria-label={p.id === mainId ? "Main photo" : "Set as main photo"}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -1539,7 +1546,7 @@ function PhotoCarousel({ photos, mainId, onZoom, onSetMain, onRemovePhoto, onAdd
                   width="20"
                   height="20"
                   viewBox="0 0 24 24"
-                  fill={p.id === mainId || photos.length === 1 ? "currentColor" : "none"}
+                  fill={p.id === mainId ? "currentColor" : "none"}
                   stroke="currentColor"
                   strokeWidth="1.7"
                 >
@@ -1563,20 +1570,22 @@ function PhotoCarousel({ photos, mainId, onZoom, onSetMain, onRemovePhoto, onAdd
             )}
           </div>
         ))}
-        <button className="carousel-slide carousel-add" onClick={onAddPhoto} disabled={adding}>
-          <span className="carousel-add-inner">
-            {adding ? (
-              "Adding…"
-            ) : (
-              <>
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                Add photo
-              </>
-            )}
-          </span>
-        </button>
+        {photos.filter((p) => p.id !== "thumb").length < 5 && (
+          <button className="carousel-slide carousel-add" onClick={onAddPhoto} disabled={adding}>
+            <span className="carousel-add-inner">
+              {adding ? (
+                "Adding…"
+              ) : (
+                <>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  Add photo
+                </>
+              )}
+            </span>
+          </button>
+        )}
       </div>
       {photos.length > 1 && (
         <div className="carousel-dots">
