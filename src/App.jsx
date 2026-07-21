@@ -6,6 +6,8 @@ import {
   emailSignUp,
   emailSignIn,
   logOut,
+  getUserProfile,
+  markTutorialSeen,
   migrateIfNeeded,
   watchCollections,
   watchItems,
@@ -30,7 +32,6 @@ import {
 
 const GUEST_KEY = "vitrine_guest_v2";
 const THEME_KEY = "archived_theme";
-const TUTORIAL_KEY = "archived_seen_a2hs_v1";
 
 function loadGuest() {
   try {
@@ -171,21 +172,28 @@ export default function App() {
       .catch(() => showToast("Couldn't join — that invite may be invalid."));
   }, [user]);
 
-  // First visit after signing in: show the add-to-home-screen tip once per
-  // device — skip if already dismissed or already running as an installed app.
+  // Show the add-to-home-screen tip once per ACCOUNT (flag lives on the
+  // user's doc, so it follows them across devices). Only on a phone browser,
+  // and never when already running as an installed app.
   useEffect(() => {
     if (!user) return;
+    const mobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent);
     const standalone =
       window.matchMedia?.("(display-mode: standalone)").matches ||
       window.navigator.standalone;
-    if (standalone) return;
-    if (localStorage.getItem(TUTORIAL_KEY)) return;
-    setShowTutorial(true);
+    if (!mobile || standalone) return;
+    let cancelled = false;
+    getUserProfile(user.uid).then((p) => {
+      if (!cancelled && !p.seenA2HS) setShowTutorial(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   function dismissTutorial() {
-    localStorage.setItem(TUTORIAL_KEY, "1");
     setShowTutorial(false);
+    if (user) markTutorialSeen(user.uid);
   }
 
   function showToast(msg) {

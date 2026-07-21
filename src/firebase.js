@@ -103,6 +103,25 @@ function displayName(user) {
   return user.displayName || user.email || "Collector";
 }
 
+/* ---------------- per-account flags ---------------- */
+// Stored on the user's own doc so a "seen once" preference follows the
+// account across devices, not just one browser.
+
+export async function getUserProfile(uid) {
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists() ? snap.data() : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function markTutorialSeen(uid) {
+  try {
+    await setDoc(doc(db, "users", uid), { seenA2HS: true }, { merge: true });
+  } catch {}
+}
+
 /* ---------------- invite codes ---------------- */
 // 8 chars, no ambiguous characters (0/O, 1/I/L), stored uppercase so
 // codes are case-insensitive. Uniqueness: the code IS the doc id, and
