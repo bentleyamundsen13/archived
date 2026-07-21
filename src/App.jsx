@@ -937,20 +937,16 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       const full = "data:image/jpeg;base64," + (await resizeImage(file, 1024, 0.72));
       const photoId = crypto.randomUUID();
       const created = Date.now();
-      // Existing items store their one photo the old way. Before adding a
-      // second, promote that original into a real photo record so it isn't
-      // hidden — and keep it as the main photo.
-      const legacy = detailPhotos.find((p) => p.id === "legacy");
-      const legacyId = legacy ? crypto.randomUUID() : null;
 
       if (cloud) {
-        if (legacy) {
-          await addPhotoDoc(col.id, detailItem.id, { id: legacyId, data: legacy.data, created: 1 });
-          await deleteItemImage(col.id, detailItem.id);
-          await updateItemDoc(col.id, detailItem.id, { mainPhotoId: legacyId });
-        }
+        // The original photo (if any) stays where it is and is always merged
+        // back in on load, so nothing is lost — just add the new one.
         await addPhotoDoc(col.id, detailItem.id, { id: photoId, data: full, created });
       } else {
+        // Guests have no separate store, so fold the original thumbnail into
+        // the photos list the first time a second photo is added.
+        const legacy = detailPhotos.find((p) => p.id === "legacy");
+        const legacyId = legacy ? crypto.randomUUID() : null;
         const base =
           detailItem.photos && detailItem.photos.length
             ? detailItem.photos
@@ -963,13 +959,18 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
           ...c,
           items: c.items.map((i) => (i.id === detailItem.id ? { ...i, ...fields } : i)),
         }));
+        setDetailPhotos((prev) => {
+          let arr = prev.filter((p) => p.id !== "thumb");
+          if (legacyId) arr = arr.map((p) => (p.id === "legacy" ? { ...p, id: legacyId } : p));
+          return [...arr, { id: photoId, data: full, created }];
+        });
+        return;
       }
 
-      setDetailPhotos((prev) => {
-        let arr = prev.filter((p) => p.id !== "thumb");
-        if (legacyId) arr = arr.map((p) => (p.id === "legacy" ? { ...p, id: legacyId } : p));
-        return [...arr, { id: photoId, data: full, created }];
-      });
+      setDetailPhotos((prev) => [
+        ...prev.filter((p) => p.id !== "thumb"),
+        { id: photoId, data: full, created },
+      ]);
     } catch {
       showToast("Couldn't add that photo — try again.");
     } finally {
@@ -979,7 +980,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
   // Make a photo the item's main one (shown in lists + first in the card).
   async function makeMainPhoto(photo) {
-    if (!detailItem || photo.id === "thumb" || photo.id === "legacy") return;
+    if (!detailItem || photo.id === "thumb") return;
     let thumb = photo.data;
     try {
       thumb = await shrinkDataUrl(photo.data, 256, 0.72);

@@ -286,10 +286,12 @@ export async function getItemPhotos(cid, itemId) {
       orderBy("created", "asc")
     )
   );
-  if (!snap.empty) return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  // Legacy fallback: a single image stored the old way.
+  const photos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Existing items store their one photo the old way. Always include it (as
+  // "legacy") alongside any added photos so it can never be hidden or lost.
   const legacy = await getItemImage(cid, itemId);
-  return legacy ? [{ id: "legacy", data: legacy, created: 0 }] : [];
+  if (legacy) photos.unshift({ id: "legacy", data: legacy, created: -1 });
+  return photos;
 }
 
 export async function deletePhotoDoc(cid, itemId, photoId) {
