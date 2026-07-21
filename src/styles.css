@@ -10,6 +10,8 @@
   --fog: #f7f8f9;
   --danger: #b4483a;
   --accent: #2f6fdb;
+  --up: #12a150;
+  --down: #c93a2b;
   --shadow: rgba(28, 30, 33, 0.05);
   /* categorical chart palette (validated for CVD + contrast, light) */
   --cat-1: #2a78d6;
@@ -29,6 +31,8 @@
   --fog: #121417;
   --danger: #e07262;
   --accent: #5b9bf5;
+  --up: #35c46e;
+  --down: #e0685a;
   --shadow: rgba(0, 0, 0, 0.35);
   /* same hues stepped for the dark surface */
   --cat-1: #3987e5;
@@ -532,6 +536,40 @@ textarea.input { resize: vertical; }
   to { opacity: 0; transform: scale(0.95); }
 }
 .reveal-img.zoomable { cursor: zoom-in; }
+
+/* price history graph */
+.graph { margin-top: 4px; }
+.graph-empty {
+  font-size: 13px; color: var(--graphite); line-height: 1.45;
+  background: var(--fog); border-radius: 12px; padding: 12px 14px;
+  margin-top: 4px;
+}
+.graph-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.graph-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--graphite);
+}
+.graph-change { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.graph-change.up { color: var(--up); }
+.graph-change.down { color: var(--down); }
+.graph-svg { width: 100%; height: auto; display: block; }
+.graph-svg.up { color: var(--up); }
+.graph-svg.down { color: var(--down); }
+.graph-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.graph-area { fill: currentColor; opacity: 0.11; stroke: none; }
+.graph-dot { fill: currentColor; }
+.graph-axis {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--graphite); margin-top: 2px;
+}
+.graph-ranges { display: flex; gap: 6px; margin-top: 10px; }
+.graph-range {
+  flex: 1; font-family: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 7px 0; border-radius: 8px;
+  background: var(--fog); border: 1px solid var(--mist);
+  color: var(--graphite); cursor: pointer;
+}
+.graph-range.active { background: var(--ink); color: var(--fog); border-color: var(--ink); }
 .detail-actions { margin-top: 12px; }
 .btn.danger-text { color: var(--danger); }
 @keyframes revealIn {

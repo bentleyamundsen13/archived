@@ -99,6 +99,26 @@ function summarize(c) {
   return c.items ? { ...c, ...computeAggregates(c.items) } : c;
 }
 
+// Look up the current market price for an item. Returns { value, image, label }
+// or null. Used both when adding an item and for the weekly price refresh.
+async function priceLookup(brand, itemName, type) {
+  const q = [brand, itemName].filter(Boolean).join(" ").trim();
+  if (!q) return null;
+  try {
+    const r = await fetch(
+      "/api/price?q=" + encodeURIComponent(q) + "&type=" + encodeURIComponent(type || "")
+    );
+    if (!r.ok) return null;
+    const p = await r.json();
+    if (typeof p.value === "number" && p.value > 0) {
+      return { value: p.value, image: p.image || null, label: p.label || null };
+    }
+  } catch {}
+  return null;
+}
+
+const PRICE_REFRESH_MS = 7 * 24 * 60 * 60 * 1000; // weekly
+
 /* ------------------------------------------------------------------ */
 /*  Root                                                               */
 /* ------------------------------------------------------------------ */
@@ -660,6 +680,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [detailClosing, setDetailClosing] = useState(false);
   const [detailPhotos, setDetailPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [detailHistory, setDetailHistory] = useState([]);
   const addPhotoRef = useRef(null);
   const [zoomed, setZoomed] = useState(null);
   const [reveal, setReveal] = useState(null);
@@ -763,6 +784,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
               item.estimated_value_usd = p.value;
               item.value_source = "market";
               item.market_label = p.label;
+              // First point on the item's price history graph.
+              item.priceHistory = [{ t: Date.now(), v: p.value }];
+              item.priceLastChecked = Date.now();
             }
           }
         }
@@ -898,6 +922,11 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     detailIdRef.current = it.id;
     setDetailId(it.id);
     setDetailClosing(false);
+    setDetailHistory(it.priceHistory || []);
+    // Once a week, refresh the market value and add a point to the graph.
+    if (Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS) {
+      refreshItemPrice(it);
+    }
     // Start with the thumbnail so something shows instantly, then swap in
     // the full-quality photo set.
     setDetailPhotos(it.image_url ? [{ id: "thumb", data: it.image_url }] : []);
@@ -935,6 +964,42 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     setDetailId(null);
     setDetailClosing(false);
     setDetailPhotos([]);
+  }
+
+  function persistPriceFields(itemId, fields) {
+    if (cloud) {
+      updateItemDoc(col.id, itemId, fields).catch(() => {});
+      setAggregates(
+        col.id,
+        items.map((i) => (i.id === itemId ? { ...i, ...fields } : i))
+      ).catch(() => {});
+    } else {
+      patchGuest((c) => ({
+        ...c,
+        items: c.items.map((i) => (i.id === itemId ? { ...i, ...fields } : i)),
+      }));
+    }
+  }
+
+  // Weekly market-value refresh: append a point to the item's price history
+  // and update its current value. Stamps the check time either way so a
+  // failed lookup doesn't re-hit eBay on every open.
+  async function refreshItemPrice(it) {
+    const now = Date.now();
+    const res = await priceLookup(it.brand, it.item_name, col.type);
+    if (!res) {
+      persistPriceFields(it.id, { priceLastChecked: now });
+      return;
+    }
+    const history = [...(it.priceHistory || []), { t: now, v: res.value }].slice(-260);
+    persistPriceFields(it.id, {
+      estimated_value_usd: res.value,
+      value_source: "market",
+      market_label: res.label || it.market_label || null,
+      priceHistory: history,
+      priceLastChecked: now,
+    });
+    if (detailIdRef.current === it.id) setDetailHistory(history);
   }
 
   // Add another photo to the open item.
@@ -1360,7 +1425,11 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             </div>
             <div className="reveal-row">
               <span className="reveal-value">{money(detailItem.estimated_value_usd)}</span>
+              {detailItem.market_label && (
+                <span className="card-sub">{detailItem.market_label}</span>
+              )}
             </div>
+            <PriceGraph history={detailHistory} />
             <div className="row detail-actions">
               <button
                 className="btn light"
@@ -1593,6 +1662,86 @@ function ValuePieChart({ slices, total }) {
               {money(s.value)} · {Math.round(s.pct)}%
             </span>
           </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Price history graph (inside the item card)                         */
+/* ------------------------------------------------------------------ */
+
+function PriceGraph({ history }) {
+  const [range, setRange] = useState("ALL");
+  const RANGES = [
+    ["1M", 30 * 864e5],
+    ["6M", 182 * 864e5],
+    ["1Y", 365 * 864e5],
+    ["ALL", Infinity],
+  ];
+
+  if (!history || history.length < 2) {
+    return (
+      <div className="graph-empty">
+        📈 Price history builds over time — a new point is added each week as
+        the value updates.
+      </div>
+    );
+  }
+
+  const now = Date.now();
+  const span = RANGES.find(([k]) => k === range)[1];
+  const inRange = history
+    .filter((p) => p && typeof p.v === "number")
+    .filter((p) => span === Infinity || now - p.t <= span)
+    .sort((a, b) => a.t - b.t);
+  // Fall back to the full series if the chosen window has too few points yet.
+  const draw = inRange.length >= 2 ? inRange : [...history].sort((a, b) => a.t - b.t);
+
+  const W = 300, H = 116, padX = 5, padTop = 10, padBot = 16;
+  const ts = draw.map((p) => p.t);
+  const vs = draw.map((p) => p.v);
+  const minT = Math.min(...ts), maxT = Math.max(...ts);
+  let minV = Math.min(...vs), maxV = Math.max(...vs);
+  if (minV === maxV) { minV -= 1; maxV += 1; }
+  const X = (t) => padX + (maxT === minT ? 0.5 : (t - minT) / (maxT - minT)) * (W - padX * 2);
+  const Y = (v) => padTop + (1 - (v - minV) / (maxV - minV)) * (H - padTop - padBot);
+
+  const line = draw.map((p) => `${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join(" ");
+  const area = `${padX},${H - padBot} ${line} ${W - padX},${H - padBot}`;
+  const first = draw[0].v, last = draw[draw.length - 1].v;
+  const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
+  const up = last >= first;
+  const dir = up ? "up" : "down";
+  const fmt = (t) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  return (
+    <div className="graph">
+      <div className="graph-head">
+        <span className="graph-label">Value history</span>
+        <span className={"graph-change " + dir}>
+          {up ? "▲" : "▼"} {Math.abs(changePct).toFixed(1)}%
+        </span>
+      </div>
+      <svg className={"graph-svg " + dir} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Price history">
+        <polygon className="graph-area" points={area} />
+        <polyline className="graph-line" points={line} vectorEffect="non-scaling-stroke" />
+        <circle className="graph-dot" cx={X(maxT)} cy={Y(last)} r="3.5" />
+      </svg>
+      <div className="graph-axis">
+        <span>{fmt(minT)}</span>
+        <span>{fmt(maxT)}</span>
+      </div>
+      <div className="graph-ranges">
+        {RANGES.map(([k]) => (
+          <button
+            key={k}
+            className={"graph-range" + (range === k ? " active" : "")}
+            onClick={() => setRange(k)}
+          >
+            {k}
+          </button>
         ))}
       </div>
     </div>
