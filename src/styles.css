@@ -355,6 +355,21 @@ textarea.input { resize: vertical; }
   margin: 14px 0 4px;
 }
 
+/* search + sort bar */
+.filter-bar {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px; flex-wrap: wrap;
+}
+.search-input { flex: 1 1 160px; min-width: 0; margin: 0; }
+.sort-pills { display: flex; gap: 4px; flex-shrink: 0; }
+.sort-pill {
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  padding: 8px 12px; border-radius: 9px;
+  background: var(--fog); border: 1px solid var(--mist);
+  color: var(--graphite); cursor: pointer;
+}
+.sort-pill.active { background: var(--ink); color: var(--fog); border-color: var(--ink); }
+
 /* share sheet */
 .sheet-backdrop {
   position: fixed; inset: 0; z-index: 80;

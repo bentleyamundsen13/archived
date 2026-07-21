@@ -638,6 +638,8 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [colName, setColName] = useState("");
   const [colType, setColType] = useState("");
   const [cloudItems, setCloudItems] = useState(null);
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("recent");
   const revealTimers = useRef([]);
   const detailIdRef = useRef(null);
 
@@ -653,6 +655,25 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const detailItem = detailId ? items.find((i) => i.id === detailId) : null;
   const isOwner = !cloud || col.owner === user?.uid;
   const total = items.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
+
+  // Search + sort. "recent" keeps the natural newest-first order; the search
+  // bar only appears once a collection is big enough to need it.
+  const q = search.trim().toLowerCase();
+  let visibleItems = q
+    ? items.filter((it) =>
+        `${it.item_name || ""} ${it.brand || ""}`.toLowerCase().includes(q)
+      )
+    : items;
+  if (sortBy === "value") {
+    visibleItems = [...visibleItems].sort(
+      (a, b) => (b.estimated_value_usd || 0) - (a.estimated_value_usd || 0)
+    );
+  } else if (sortBy === "name") {
+    visibleItems = [...visibleItems].sort((a, b) =>
+      (a.item_name || "").localeCompare(b.item_name || "")
+    );
+  }
+  const showFilterBar = items.length > 4;
 
   function patchGuest(fn) {
     setGuestData((d) => ({
@@ -966,11 +987,37 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
       {error && <div className="error pop">{error}</div>}
 
+      {itemsReady && showFilterBar && (
+        <div className="filter-bar">
+          <input
+            className="input search-input"
+            placeholder="Search items…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <div className="sort-pills">
+            {[
+              ["recent", "Recent"],
+              ["value", "Value"],
+              ["name", "Name"],
+            ].map(([k, label]) => (
+              <button
+                key={k}
+                className={"sort-pill" + (sortBy === k ? " active" : "")}
+                onClick={() => setSortBy(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!itemsReady ? (
         <div className="center">Loading…</div>
       ) : (
         <main className="list">
-          {items.map((it, idx) =>
+          {visibleItems.map((it, idx) =>
             editingId === it.id ? (
               <ItemEditor
                 key={it.id}
@@ -1018,6 +1065,12 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       {itemsReady && items.length === 0 && !busy && (
         <div className="empty">
           <p>Add your first item.</p>
+        </div>
+      )}
+
+      {itemsReady && items.length > 0 && visibleItems.length === 0 && (
+        <div className="empty">
+          <p>No matches.</p>
         </div>
       )}
 
