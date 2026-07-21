@@ -85,7 +85,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .screen, .rise, .pop, .lightbox, .lightbox img,
-  .reveal-backdrop, .reveal-card, .sheet-backdrop, .toast { animation: none; }
+  .reveal-backdrop, .reveal-card, .sheet-backdrop, .toast,
+  .tut-backdrop, .tut-card { animation: none; }
   .item-more { transition: none; }
 }
 
@@ -297,17 +298,22 @@ textarea.input { resize: vertical; }
 .profile { display: flex; align-items: center; gap: 14px; margin: 6px 0 20px; }
 .avatar {
   width: 56px; height: 56px; border-radius: 50%;
-  object-fit: cover; border: 1px solid var(--mist);
+  object-fit: cover; border: 1px solid var(--mist); flex-shrink: 0;
 }
 .avatar.ph {
   display: grid; place-items: center;
   background: var(--paper); color: var(--ink);
   font-weight: 800; font-size: 22px;
 }
+/* let the text column shrink so a long email can't push past the edge */
+.profile > div { min-width: 0; }
 .profile-name { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+.profile .card-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.stat { padding: 16px; }
+/* min-width:0 lets each grid cell shrink below its content so a long
+   value/name ellipsis-truncates instead of overflowing the page. */
+.stat { padding: 16px; min-width: 0; }
 .stat-num {
   font-size: 22px; font-weight: 800; letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -391,6 +397,33 @@ textarea.input { resize: vertical; }
   letter-spacing: normal;
   font-weight: 400;
 }
+
+/* first-run "add to home screen" tutorial */
+.tut-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(28, 30, 33, 0.55);
+  backdrop-filter: blur(4px);
+  animation: lightboxIn 0.25s ease;
+}
+.tut-card {
+  width: min(90vw, 360px);
+  max-height: 86vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 22px; border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: revealIn 0.4s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.tut-icon { font-size: 34px; line-height: 1; }
+.tut-title { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+.tut-blurb { font-size: 14px; color: var(--graphite); line-height: 1.45; }
+.tut-steps { display: flex; flex-direction: column; gap: 10px; margin: 2px 0 4px; padding-left: 20px; }
+.tut-steps li { font-size: 14.5px; line-height: 1.4; }
+.tut-share {
+  display: inline-flex; vertical-align: -4px;
+  color: var(--ink); margin: 0 1px;
+}
+.tut-card .btn { width: 100%; }
 
 /* toast */
 .toast {

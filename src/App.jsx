@@ -30,6 +30,7 @@ import {
 
 const GUEST_KEY = "vitrine_guest_v2";
 const THEME_KEY = "archived_theme";
+const TUTORIAL_KEY = "archived_seen_a2hs_v1";
 
 function loadGuest() {
   try {
@@ -82,6 +83,7 @@ export default function App() {
   const [openId, setOpenId] = useState(null);
   const [tab, setTab] = useState("collections");
   const [toast, setToast] = useState("");
+  const [showTutorial, setShowTutorial] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "system");
   const toastTimer = useRef(null);
 
@@ -168,6 +170,23 @@ export default function App() {
       .then(() => showToast("You're in — the shared collection is now in your list."))
       .catch(() => showToast("Couldn't join — that invite may be invalid."));
   }, [user]);
+
+  // First visit after signing in: show the add-to-home-screen tip once per
+  // device — skip if already dismissed or already running as an installed app.
+  useEffect(() => {
+    if (!user) return;
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+      window.navigator.standalone;
+    if (standalone) return;
+    if (localStorage.getItem(TUTORIAL_KEY)) return;
+    setShowTutorial(true);
+  }, [user]);
+
+  function dismissTutorial() {
+    localStorage.setItem(TUTORIAL_KEY, "1");
+    setShowTutorial(false);
+  }
 
   function showToast(msg) {
     setToast(msg);
@@ -264,6 +283,64 @@ export default function App() {
       </nav>
 
       {toast && <div className="toast">{toast}</div>}
+      {showTutorial && <AddToHomeScreen onClose={dismissTutorial} />}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  First-run: add to home screen                                      */
+/* ------------------------------------------------------------------ */
+
+function AddToHomeScreen({ onClose }) {
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  return (
+    <div className="tut-backdrop" onClick={onClose}>
+      <div className="card tut-card" onClick={(e) => e.stopPropagation()}>
+        <div className="tut-icon">📲</div>
+        <div className="tut-title">Add Archived to your Home Screen</div>
+        <p className="tut-blurb">
+          Install it in a couple taps — it opens full-screen and feels like a
+          real app, without the browser bars.
+        </p>
+        <ol className="tut-steps">
+          {ios ? (
+            <>
+              <li>
+                Tap the <b>Share</b> button
+                <span className="tut-share">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                    <path d="M12 3v12M8 7l4-4 4 4" />
+                    <path d="M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7" />
+                  </svg>
+                </span>
+                at the bottom of Safari.
+              </li>
+              <li>
+                Scroll down and tap <b>Add to Home Screen</b>.
+              </li>
+              <li>
+                Tap <b>Add</b> in the top corner.
+              </li>
+            </>
+          ) : (
+            <>
+              <li>
+                Tap the <b>⋮</b> menu in the corner of your browser.
+              </li>
+              <li>
+                Tap <b>Add to Home screen</b> (or <b>Install app</b>).
+              </li>
+              <li>
+                Tap <b>Add</b> to confirm.
+              </li>
+            </>
+          )}
+        </ol>
+        <button className="btn dark" onClick={onClose}>
+          Got it
+        </button>
+      </div>
     </div>
   );
 }
