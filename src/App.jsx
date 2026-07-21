@@ -412,9 +412,11 @@ function Landing({ onGuest }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const invited = new URLSearchParams(window.location.search).has("join");
 
   async function submit() {
+    if (!agreed) return;
     setErr("");
     setBusy(true);
     try {
@@ -428,6 +430,7 @@ function Landing({ onGuest }) {
   }
 
   async function google() {
+    if (!agreed) return;
     setErr("");
     try {
       await googleSignIn();
@@ -458,7 +461,20 @@ function Landing({ onGuest }) {
         )}
         {firebaseReady ? (
           <>
-            <button className="btn google" onClick={google}>
+            <label className="agree">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+              />
+              <span>
+                I agree to the{" "}
+                <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy Policy</a>{" "}
+                and{" "}
+                <a href="/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>.
+              </span>
+            </label>
+            <button className="btn google" disabled={!agreed} onClick={google}>
               <GoogleMark /> Continue with Google
             </button>
             <div className="divider">
@@ -479,7 +495,7 @@ function Landing({ onGuest }) {
               onChange={(e) => setPw(e.target.value)}
             />
             {err && <div className="auth-error">{err}</div>}
-            <button className="btn dark" disabled={busy || !email || pw.length < 6} onClick={submit}>
+            <button className="btn dark" disabled={busy || !email || pw.length < 6 || !agreed} onClick={submit}>
               {mode === "signup" ? "Create account" : "Log in"}
             </button>
             <button className="btn text" onClick={() => setMode(mode === "signup" ? "signin" : "signup")}>

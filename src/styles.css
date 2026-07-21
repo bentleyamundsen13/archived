@@ -134,6 +134,16 @@ body {
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--mist); }
 .auth-error { color: var(--danger); font-size: 13.5px; }
 .setup-note { font-size: 13.5px; color: var(--graphite); background: var(--fog); border-radius: 10px; padding: 12px; }
+.agree {
+  display: flex; align-items: flex-start; gap: 9px;
+  font-size: 13px; color: var(--graphite); line-height: 1.4;
+  text-align: left; cursor: pointer; margin: 2px 0 2px;
+}
+.agree input {
+  margin: 1px 0 0; width: 17px; height: 17px; flex-shrink: 0;
+  accent-color: var(--ink); cursor: pointer;
+}
+.agree a { color: var(--accent); font-weight: 600; }
 
 /* ---------------- buttons, inputs ---------------- */
 
