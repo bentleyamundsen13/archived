@@ -34,6 +34,7 @@ import {
   initializeFirestore,
   doc,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -263,6 +264,37 @@ export async function setAggregates(cid, items) {
 }
 
 /* ---------------- full-size item photos ---------------- */
+// Photos live one-per-doc under an item so we never hit Firestore's 1MB/doc
+// limit and don't need the paid Storage product. The item doc keeps a small
+// thumbnail (image_url) of the MAIN photo for fast list rendering, plus
+// mainPhotoId. Legacy items store a single full image under images/{itemId};
+// getItemPhotos falls back to that so older items keep working.
+
+export async function addPhotoDoc(cid, itemId, photo) {
+  const id = photo.id || crypto.randomUUID();
+  await setDoc(doc(db, "collections", cid, "items", itemId, "photos", id), {
+    data: photo.data,
+    created: photo.created ?? Date.now(),
+  });
+  return id;
+}
+
+export async function getItemPhotos(cid, itemId) {
+  const snap = await getDocs(
+    query(
+      collection(db, "collections", cid, "items", itemId, "photos"),
+      orderBy("created", "asc")
+    )
+  );
+  if (!snap.empty) return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Legacy fallback: a single image stored the old way.
+  const legacy = await getItemImage(cid, itemId);
+  return legacy ? [{ id: "legacy", data: legacy, created: 0 }] : [];
+}
+
+export async function deletePhotoDoc(cid, itemId, photoId) {
+  await deleteDoc(doc(db, "collections", cid, "items", itemId, "photos", photoId));
+}
 
 export async function setItemImage(cid, itemId, dataUrl) {
   await setDoc(doc(db, "collections", cid, "images", itemId), { data: dataUrl });

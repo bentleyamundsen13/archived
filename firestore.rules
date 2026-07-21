@@ -50,6 +50,11 @@ service cloud.firestore {
       match /items/{itemId} {
         allow read, write: if memberOf(
           get(/databases/$(database)/documents/collections/$(cid)).data);
+        // Per-item photos (one doc per photo).
+        match /photos/{photoId} {
+          allow read, write: if memberOf(
+            get(/databases/$(database)/documents/collections/$(cid)).data);
+        }
       }
       match /images/{itemId} {
         allow read, write: if memberOf(

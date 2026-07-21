@@ -22,6 +22,9 @@ import {
   setItemImage,
   getItemImage,
   deleteItemImage,
+  addPhotoDoc,
+  getItemPhotos,
+  deletePhotoDoc,
   setAggregates,
   computeAggregates,
 } from "./firebase.js";
@@ -61,6 +64,24 @@ function resizeImage(file, maxSide = 1024, quality = 0.85) {
     };
     img.onerror = () => reject(new Error("Could not read that photo"));
     img.src = URL.createObjectURL(file);
+  });
+}
+
+// Re-compress an existing data URL down to a small thumbnail (used when a
+// full-size photo is promoted to be the item's main list image).
+function shrinkDataUrl(dataUrl, maxSide = 256, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => reject(new Error("Could not process that photo"));
+    img.src = dataUrl;
   });
 }
 
@@ -629,7 +650,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [editingId, setEditingId] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [detailClosing, setDetailClosing] = useState(false);
-  const [detailFull, setDetailFull] = useState(null);
+  const [detailPhotos, setDetailPhotos] = useState([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const addPhotoRef = useRef(null);
   const [zoomed, setZoomed] = useState(null);
   const [reveal, setReveal] = useState(null);
   const [sharing, setSharing] = useState(false);
@@ -711,13 +734,13 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
         created: Date.now(),
       };
       const fullImage = "data:image/jpeg;base64," + imageBase64;
-      // Cards show a small thumbnail; the full-quality photo is stored
-      // separately (cloud) and only fetched when the user zooms in.
-      // Guests get one mid-size image — localStorage is small.
+      const photoId = crypto.randomUUID();
+      item.mainPhotoId = photoId;
+      // Cards show a small thumbnail of the MAIN photo; full-quality photos
+      // live one-per-record and are only fetched when the card opens.
       try {
-        const side = cloud ? 256 : 512;
         item.image_url =
-          "data:image/jpeg;base64," + (await resizeImage(file, side, 0.72));
+          "data:image/jpeg;base64," + (await resizeImage(file, 256, 0.72));
       } catch {}
       try {
         const q = [item.brand, item.item_name].filter(Boolean).join(" ").trim();
@@ -728,7 +751,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
           );
           if (pr.ok) {
             const p = await pr.json();
-            if (p.image && !item.image_url) item.image_url = p.image;
             if (p.value) {
               item.estimated_value_usd = p.value;
               item.value_source = "market";
@@ -741,12 +763,13 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       if (cloud) {
         await addItemDoc(col.id, item);
         try {
-          await setItemImage(col.id, item.id, fullImage);
+          await addPhotoDoc(col.id, item.id, { id: photoId, data: fullImage });
         } catch {}
         try {
           await setAggregates(col.id, [item, ...items]);
         } catch {}
       } else {
+        item.photos = [{ id: photoId, data: fullImage, created: Date.now() }];
         patchGuest((c) => ({ ...c, items: [item, ...c.items] }));
       }
       showReveal({ ...item, image_url: fullImage });
@@ -853,18 +876,38 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     }
   }
 
+  // Order photos so the main one comes first, then oldest→newest.
+  function orderPhotos(photos, mainId) {
+    return [...photos].sort((a, b) => {
+      if (a.id === mainId) return -1;
+      if (b.id === mainId) return 1;
+      return (a.created || 0) - (b.created || 0);
+    });
+  }
+
   // Tapping an item opens the same rich card that appears after adding.
   async function openDetail(it) {
     detailIdRef.current = it.id;
     setDetailId(it.id);
     setDetailClosing(false);
-    setDetailFull(null);
+    // Start with the thumbnail so something shows instantly, then swap in
+    // the full-quality photo set.
+    setDetailPhotos(it.image_url ? [{ id: "thumb", data: it.image_url }] : []);
+    let photos = [];
     if (cloud) {
       try {
-        const full = await getItemImage(col.id, it.id);
-        // Only apply if this detail is still the open one.
-        setDetailFull((prev) => (detailIdRef.current === it.id ? full : prev));
+        photos = await getItemPhotos(col.id, it.id);
       } catch {}
+    } else {
+      photos =
+        it.photos && it.photos.length
+          ? it.photos
+          : it.image_url
+          ? [{ id: "legacy", data: it.image_url, created: 0 }]
+          : [];
+    }
+    if (detailIdRef.current === it.id && photos.length) {
+      setDetailPhotos(orderPhotos(photos, it.mainPhotoId));
     }
   }
 
@@ -874,7 +917,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     setTimeout(() => {
       setDetailId(null);
       setDetailClosing(false);
-      setDetailFull(null);
+      setDetailPhotos([]);
     }, 220);
   }
 
@@ -883,7 +926,127 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     detailIdRef.current = null;
     setDetailId(null);
     setDetailClosing(false);
-    setDetailFull(null);
+    setDetailPhotos([]);
+  }
+
+  // Add another photo to the open item.
+  async function addPhotoToItem(file) {
+    if (!file || !detailItem) return;
+    setPhotoBusy(true);
+    try {
+      const full = "data:image/jpeg;base64," + (await resizeImage(file, 1024, 0.72));
+      const photoId = crypto.randomUUID();
+      const created = Date.now();
+      // Existing items store their one photo the old way. Before adding a
+      // second, promote that original into a real photo record so it isn't
+      // hidden — and keep it as the main photo.
+      const legacy = detailPhotos.find((p) => p.id === "legacy");
+      const legacyId = legacy ? crypto.randomUUID() : null;
+
+      if (cloud) {
+        if (legacy) {
+          await addPhotoDoc(col.id, detailItem.id, { id: legacyId, data: legacy.data, created: 1 });
+          await deleteItemImage(col.id, detailItem.id);
+          await updateItemDoc(col.id, detailItem.id, { mainPhotoId: legacyId });
+        }
+        await addPhotoDoc(col.id, detailItem.id, { id: photoId, data: full, created });
+      } else {
+        const base =
+          detailItem.photos && detailItem.photos.length
+            ? detailItem.photos
+            : legacy
+            ? [{ id: legacyId, data: legacy.data, created: 1 }]
+            : [];
+        const next = [...base, { id: photoId, data: full, created }];
+        const fields = legacy ? { photos: next, mainPhotoId: legacyId } : { photos: next };
+        patchGuest((c) => ({
+          ...c,
+          items: c.items.map((i) => (i.id === detailItem.id ? { ...i, ...fields } : i)),
+        }));
+      }
+
+      setDetailPhotos((prev) => {
+        let arr = prev.filter((p) => p.id !== "thumb");
+        if (legacyId) arr = arr.map((p) => (p.id === "legacy" ? { ...p, id: legacyId } : p));
+        return [...arr, { id: photoId, data: full, created }];
+      });
+    } catch {
+      showToast("Couldn't add that photo — try again.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  // Make a photo the item's main one (shown in lists + first in the card).
+  async function makeMainPhoto(photo) {
+    if (!detailItem || photo.id === "thumb" || photo.id === "legacy") return;
+    let thumb = photo.data;
+    try {
+      thumb = await shrinkDataUrl(photo.data, 256, 0.72);
+    } catch {}
+    const fields = { mainPhotoId: photo.id, image_url: thumb };
+    if (cloud) {
+      try {
+        await updateItemDoc(col.id, detailItem.id, fields);
+        await setAggregates(
+          col.id,
+          items.map((i) => (i.id === detailItem.id ? { ...i, ...fields } : i))
+        );
+      } catch {
+        showToast("Couldn't set the main photo — check your connection.");
+        return;
+      }
+    } else {
+      patchGuest((c) => ({
+        ...c,
+        items: c.items.map((i) => (i.id === detailItem.id ? { ...i, ...fields } : i)),
+      }));
+    }
+    setDetailPhotos((prev) => orderPhotos(prev, photo.id));
+  }
+
+  // Remove one photo; if it was the main one, the next becomes main.
+  async function removePhoto(photo) {
+    if (!detailItem) return;
+    const remaining = detailPhotos.filter((p) => p.id !== photo.id);
+    const wasMain = detailItem.mainPhotoId === photo.id;
+    const newMain = wasMain ? remaining[0] : null;
+    let fields = {};
+    if (newMain) {
+      let thumb = newMain.data;
+      try {
+        thumb = await shrinkDataUrl(newMain.data, 256, 0.72);
+      } catch {}
+      fields = { mainPhotoId: newMain.id, image_url: thumb };
+    } else if (wasMain) {
+      fields = { mainPhotoId: null, image_url: null };
+    }
+    if (cloud) {
+      try {
+        if (photo.id !== "legacy") await deletePhotoDoc(col.id, detailItem.id, photo.id);
+        else await deleteItemImage(col.id, detailItem.id);
+        if (Object.keys(fields).length) {
+          await updateItemDoc(col.id, detailItem.id, fields);
+          await setAggregates(
+            col.id,
+            items.map((i) => (i.id === detailItem.id ? { ...i, ...fields } : i))
+          );
+        }
+      } catch {
+        showToast("Couldn't remove that photo — check your connection.");
+        return;
+      }
+    } else {
+      patchGuest((c) => ({
+        ...c,
+        items: c.items.map((i) =>
+          i.id === detailItem.id
+            ? { ...i, photos: (i.photos || []).filter((p) => p.id !== photo.id), ...fields }
+            : i
+        ),
+      }));
+    }
+    setDetailPhotos(orderPhotos(remaining, newMain ? newMain.id : detailItem.mainPhotoId));
   }
 
   function copyInvite() {
@@ -1144,14 +1307,25 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
           onClick={closeDetail}
         >
           <div className="card reveal-card" onClick={(e) => e.stopPropagation()}>
-            {(detailFull || detailItem.image_url) && (
-              <img
-                className="reveal-img zoomable"
-                src={detailFull || detailItem.image_url}
-                alt=""
-                onClick={() => openZoom(detailItem)}
-              />
-            )}
+            <PhotoCarousel
+              photos={detailPhotos}
+              mainId={detailItem.mainPhotoId}
+              onZoom={(url) => setZoomed({ url })}
+              onSetMain={makeMainPhoto}
+              onRemovePhoto={removePhoto}
+              onAddPhoto={() => addPhotoRef.current?.click()}
+              adding={photoBusy}
+            />
+            <input
+              ref={addPhotoRef}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                addPhotoToItem(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
             <div className="reveal-name">{detailItem.item_name || "Unidentified"}</div>
             <div className="card-sub">
               {detailItem.brand || "Unknown"}
@@ -1316,6 +1490,101 @@ function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
         </div>
       </div>
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Photo carousel (inside the item card)                              */
+/* ------------------------------------------------------------------ */
+
+function PhotoCarousel({ photos, mainId, onZoom, onSetMain, onRemovePhoto, onAddPhoto, adding }) {
+  const trackRef = useRef(null);
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    if (index > photos.length - 1) setIndex(Math.max(0, photos.length - 1));
+  }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function onScroll() {
+    const el = trackRef.current;
+    if (!el || !el.clientWidth) return;
+    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i !== index) setIndex(i);
+  }
+
+  const real = (p) => p.id !== "thumb";
+
+  return (
+    <div className="carousel">
+      <div className="carousel-track" ref={trackRef} onScroll={onScroll}>
+        {photos.map((p) => (
+          <div className="carousel-slide" key={p.id}>
+            <img
+              className="carousel-img"
+              src={p.data}
+              alt=""
+              onClick={() => onZoom(p.data)}
+            />
+            {real(p) && (
+              <button
+                className={"photo-star" + (p.id === mainId || photos.length === 1 ? " active" : "")}
+                aria-label={p.id === mainId ? "Main photo" : "Set as main photo"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSetMain(p);
+                }}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill={p.id === mainId || photos.length === 1 ? "currentColor" : "none"}
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                >
+                  <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.9z" />
+                </svg>
+              </button>
+            )}
+            {real(p) && photos.length > 1 && (
+              <button
+                className="photo-del"
+                aria-label="Remove photo"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemovePhoto(p);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            )}
+          </div>
+        ))}
+        <button className="carousel-slide carousel-add" onClick={onAddPhoto} disabled={adding}>
+          <span className="carousel-add-inner">
+            {adding ? (
+              "Adding…"
+            ) : (
+              <>
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                Add photo
+              </>
+            )}
+          </span>
+        </button>
+      </div>
+      {photos.length > 1 && (
+        <div className="carousel-dots">
+          {photos.map((p, i) => (
+            <span key={p.id} className={"dot" + (i === index ? " active" : "")} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
