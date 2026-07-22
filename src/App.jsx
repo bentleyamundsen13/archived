@@ -1874,24 +1874,36 @@ function PhotoCarousel({ photos, mainId, onSetMain, onRemovePhoto, onAddPhoto, a
 /*  Wishlist                                                           */
 /* ------------------------------------------------------------------ */
 
+const BUYING = [
+  ["", "Both"],
+  ["fixed", "Buy It Now"],
+  ["auction", "Auction"],
+];
+
 function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
   const [view, setView] = useState("search"); // "search" | "saved"
   const [q, setQ] = useState("");
+  const [buying, setBuying] = useState(""); // "" both · "fixed" · "auction"
   const [results, setResults] = useState(null); // null idle · [] none · [...] found
   const [searching, setSearching] = useState(false);
   const [savedQuery, setSavedQuery] = useState("");
-  const [detail, setDetail] = useState(null);
-  const [detailClosing, setDetailClosing] = useState(false);
+  const [openId, setOpenId] = useState(null);
 
-  const savedUrls = new Set(wishlist.map((w) => w.listing_url));
+  const savedIds = new Set(wishlist.map((w) => w.itemId || w.listing_url));
+  const openItem = openId ? wishlist.find((w) => w.id === openId) : null;
 
-  async function runSearch() {
+  // buyingOverride lets the filter buttons search with the just-clicked value
+  // without waiting for the async state update.
+  async function runSearch(buyingOverride) {
     const term = q.trim();
     if (!term) return;
+    const b = buyingOverride === undefined ? buying : buyingOverride;
     setSearching(true);
     setResults(null);
     try {
-      const r = await fetch("/api/price?search=1&q=" + encodeURIComponent(term));
+      const r = await fetch(
+        "/api/price?search=1&q=" + encodeURIComponent(term) + (b ? "&buying=" + b : "")
+      );
       const data = r.ok ? await r.json() : { results: [] };
       setResults(data.results || []);
     } catch {
@@ -1906,11 +1918,14 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
     const price = Math.round(res.price);
     const item = {
       id: crypto.randomUUID(),
+      itemId: res.itemId || null,
       item_name: (res.title || "Item").slice(0, 140),
       estimated_value_usd: price,
       image_url: res.image,
       listing_url: res.url,
       condition: res.condition || "",
+      buyingOptions: res.buyingOptions || [],
+      isAuction: !!res.isAuction,
       created: now,
       value_source: "market",
       market_label: "eBay",
@@ -1941,32 +1956,6 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
     }
   }
 
-  async function openDetail(it) {
-    setDetail(it);
-    setDetailClosing(false);
-    // Weekly price refresh, same idea as owned items.
-    if (Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS) {
-      const res = await priceLookup("", it.item_name, "");
-      const now = Date.now();
-      if (res) {
-        const history = [...(it.priceHistory || []), { t: now, v: res.value }].slice(-260);
-        const fields = { estimated_value_usd: res.value, priceHistory: history, priceLastChecked: now };
-        persistWish(it.id, fields);
-        setDetail((d) => (d && d.id === it.id ? { ...d, ...fields } : d));
-      } else {
-        persistWish(it.id, { priceLastChecked: now });
-      }
-    }
-  }
-
-  function closeDetail() {
-    setDetailClosing(true);
-    setTimeout(() => {
-      setDetail(null);
-      setDetailClosing(false);
-    }, 220);
-  }
-
   async function removeItem(itemId) {
     if (cloud) {
       try {
@@ -1981,7 +1970,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
         wishlist: (d.wishlist || []).filter((w) => w.id !== itemId),
       }));
     }
-    closeDetail();
+    setOpenId(null);
   }
 
   const savedFiltered = savedQuery.trim()
@@ -1989,6 +1978,18 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
         (w.item_name || "").toLowerCase().includes(savedQuery.trim().toLowerCase())
       )
     : wishlist;
+
+  // Full themed listing page for a saved item.
+  if (openItem) {
+    return (
+      <WishlistItemPage
+        item={openItem}
+        onBack={() => setOpenId(null)}
+        onRemove={() => removeItem(openItem.id)}
+        onPersist={persistWish}
+      />
+    );
+  }
 
   return (
     <>
@@ -2018,6 +2019,20 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
               {searching ? <span className="spinner" /> : "Search"}
             </button>
           </div>
+          <div className="segmented wl-filter">
+            {BUYING.map(([k, lbl]) => (
+              <button
+                key={k || "both"}
+                className={"seg" + (buying === k ? " active" : "")}
+                onClick={() => {
+                  setBuying(k);
+                  if (q.trim()) runSearch(k);
+                }}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
           {results === null && !searching && (
             <div className="empty">
               <p>Search for anything you want.</p>
@@ -2025,13 +2040,13 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
           )}
           {results && results.length === 0 && (
             <div className="empty">
-              <p>No matches — try different words.</p>
+              <p>No matches — try different words or filters.</p>
             </div>
           )}
           {results && results.length > 0 && (
             <main className="list">
               {results.map((r, i) => {
-                const added = savedUrls.has(r.url);
+                const added = savedIds.has(r.itemId || r.url);
                 return (
                   <div className="card wl-result" key={i}>
                     <img
@@ -2046,6 +2061,11 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
                         {money(r.price)}
                         {r.condition ? ` · ${r.condition}` : ""}
                       </div>
+                      <span className={"wl-tag " + (r.isAuction ? "auction" : "bin")}>
+                        {r.isAuction
+                          ? `Auction${r.bidCount != null ? ` · ${r.bidCount} bid${r.bidCount === 1 ? "" : "s"}` : ""}`
+                          : "Buy It Now"}
+                      </span>
                     </div>
                     <button
                       className="btn light small wl-add"
@@ -2059,7 +2079,9 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
               })}
             </main>
           )}
-          <p className="wl-note">Prices and listings are from eBay. Tap a saved item to view its listing.</p>
+          <p className="wl-note">
+            Prices and listings are from eBay. Tap a saved item for its full listing.
+          </p>
         </>
       ) : (
         <>
@@ -2084,7 +2106,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
                 key={it.id}
                 className="card item rise"
                 style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}
-                onClick={() => openDetail(it)}
+                onClick={() => setOpenId(it.id)}
               >
                 <div className="item-row">
                   {it.image_url ? (
@@ -2099,7 +2121,10 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
                   )}
                   <div className="grow">
                     <div className="card-title wl-title">{it.item_name || "Item"}</div>
-                    <div className="card-sub">{it.condition || "eBay"}</div>
+                    <div className="card-sub">
+                      {it.isAuction ? "Auction" : "Buy It Now"}
+                      {it.condition ? ` · ${it.condition}` : ""}
+                    </div>
                   </div>
                   <div className="card-value">{money(it.estimated_value_usd)}</div>
                 </div>
@@ -2108,39 +2133,159 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
           </main>
         </>
       )}
+    </>
+  );
+}
 
-      {detail && (
-        <div
-          className={"reveal-backdrop tappable" + (detailClosing ? " out-detail" : "")}
-          onClick={closeDetail}
-        >
-          <div className="card reveal-card" onClick={(e) => e.stopPropagation()}>
-            {detail.image_url && <img className="reveal-img" src={detail.image_url} alt="" />}
-            <div className="reveal-name">{detail.item_name || "Item"}</div>
-            <div className="item-meta">{detail.condition || "eBay listing"}</div>
-            <div className="reveal-row">
-              <span className="reveal-value">{money(detail.estimated_value_usd)}</span>
-              <span className="card-sub">asking price</span>
+/* Full eBay-style listing page for a saved wishlist item, in our theme.
+   Photos, description, condition and buy format are fetched live so we never
+   cache eBay listing content; the stored snapshot is the fallback. */
+function WishlistItemPage({ item, onBack, onRemove, onPersist }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(!!item.itemId);
+  const [ended, setEnded] = useState(!item.itemId);
+  const [imgIdx, setImgIdx] = useState(0);
+
+  useEffect(() => {
+    let dead = false;
+    // Weekly price-history refresh (median by name), same as owned items.
+    (async () => {
+      if (Date.now() - (item.priceLastChecked || 0) > PRICE_REFRESH_MS) {
+        const res = await priceLookup("", item.item_name, "");
+        const now = Date.now();
+        if (res) {
+          const history = [...(item.priceHistory || []), { t: now, v: res.value }].slice(-260);
+          onPersist(item.id, {
+            estimated_value_usd: res.value,
+            priceHistory: history,
+            priceLastChecked: now,
+          });
+        } else {
+          onPersist(item.id, { priceLastChecked: now });
+        }
+      }
+    })();
+    // Live listing detail.
+    if (item.itemId) {
+      (async () => {
+        try {
+          const r = await fetch("/api/price?item=" + encodeURIComponent(item.itemId));
+          const data = r.ok ? await r.json() : { item: null };
+          if (dead) return;
+          if (data.item) setDetail(data.item);
+          else setEnded(true);
+        } catch {
+          if (!dead) setEnded(true);
+        } finally {
+          if (!dead) setLoading(false);
+        }
+      })();
+    }
+    return () => {
+      dead = true;
+    };
+  }, [item.id, item.itemId]);
+
+  const images = detail?.images?.length
+    ? detail.images
+    : item.image_url
+    ? [item.image_url]
+    : [];
+  const title = detail?.title || item.item_name || "Item";
+  const price = detail?.price ?? item.estimated_value_usd;
+  const condition = detail?.condition || item.condition || null;
+  const isAuction = detail ? detail.isAuction : item.isAuction;
+  const bidCount = detail?.bidCount;
+  const url = detail?.url || item.listing_url;
+
+  return (
+    <>
+      <header className="topbar">
+        <button className="link back" onClick={onBack}>
+          ‹ Wishlist
+        </button>
+      </header>
+
+      <div className="wl-page">
+        {images.length > 0 && (
+          <div className="wl-gallery">
+            <div
+              className="wl-gallery-track"
+              onScroll={(e) => {
+                const w = e.target.clientWidth || 1;
+                setImgIdx(Math.round(e.target.scrollLeft / w));
+              }}
+            >
+              {images.map((src, i) => (
+                <img key={i} className="wl-gallery-img" src={src} alt="" />
+              ))}
             </div>
-            {detail.listing_url && (
-              <a
-                className="btn light listing-link"
-                href={detail.listing_url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                View listing ↗
-              </a>
+            {images.length > 1 && (
+              <div className="wl-dots">
+                {images.map((_, i) => (
+                  <span key={i} className={"wl-dot" + (i === imgIdx ? " on" : "")} />
+                ))}
+              </div>
             )}
-            <PriceGraph history={detail.priceHistory || []} />
-            <div className="row detail-actions">
-              <button className="btn light danger-text" onClick={() => removeItem(detail.id)}>
-                Remove from wishlist
-              </button>
-            </div>
           </div>
+        )}
+
+        <h2 className="wl-page-title">{title}</h2>
+
+        <div className="wl-price-row">
+          <span className="wl-price">{money(price)}</span>
+          <span className={"wl-tag " + (isAuction ? "auction" : "bin")}>
+            {isAuction
+              ? `Auction${bidCount != null ? ` · ${bidCount} bid${bidCount === 1 ? "" : "s"}` : ""}`
+              : "Buy It Now"}
+          </span>
         </div>
-      )}
+
+        {condition && (
+          <div className="wl-cond">
+            {condition}
+            {detail?.conditionDescription ? ` — ${detail.conditionDescription}` : ""}
+          </div>
+        )}
+
+        {url && (
+          <a className="btn dark wl-cta" href={url} target="_blank" rel="noreferrer">
+            View on eBay ↗
+          </a>
+        )}
+
+        {loading && (
+          <div className="wl-inline-load">
+            <span className="spinner" /> Loading the latest listing details…
+          </div>
+        )}
+        {ended && !loading && item.itemId && (
+          <div className="wl-ended">This eBay listing has ended — showing your saved details.</div>
+        )}
+
+        {detail?.description && (
+          <div className="wl-section">
+            <div className="wl-section-h">Description</div>
+            <p className="wl-desc">{detail.description}</p>
+          </div>
+        )}
+
+        <div className="wl-section">
+          <div className="wl-section-h">Price history</div>
+          <PriceGraph history={item.priceHistory || []} />
+        </div>
+
+        {(detail?.seller || detail?.itemLocation) && (
+          <div className="wl-seller">
+            {detail.seller && <span>Seller · {detail.seller}</span>}
+            {detail.itemLocation && <span>{detail.itemLocation}</span>}
+          </div>
+        )}
+
+        <button className="btn light danger-text wl-remove" onClick={onRemove}>
+          Remove from wishlist
+        </button>
+      </div>
     </>
   );
 }

@@ -168,11 +168,39 @@ async function ebayPrice(q, id, secret) {
 // for the user to pick from — used by the wishlist search. Buyers browsing
 // and saving items that link back to eBay is an intended use of the API.
 
-async function ebaySearch(q, id, secret) {
+// Map our simple buying filter to eBay's buyingOptions filter.
+function buyingFilter(buying) {
+  if (buying === "auction") return "&filter=" + encodeURIComponent("buyingOptions:{AUCTION}");
+  if (buying === "fixed") return "&filter=" + encodeURIComponent("buyingOptions:{FIXED_PRICE}");
+  return "";
+}
+
+// Normalize an eBay itemSummary/item into the shape our wishlist UI uses.
+// For auctions the "price" is the current bid; for fixed-price it's the ask.
+function shapeEbayItem(it) {
+  const opts = it.buyingOptions || [];
+  const isAuction = opts.includes("AUCTION");
+  const bid = Number(it?.currentBidPrice?.value);
+  const fixed = Number(it?.price?.value);
+  const price = isAuction && Number.isFinite(bid) ? bid : fixed;
+  return {
+    itemId: it.itemId || null,
+    title: it.title || "",
+    price: Number.isFinite(price) ? price : null,
+    image: it.image?.imageUrl || it.thumbnailImages?.[0]?.imageUrl || null,
+    url: it.itemWebUrl || null,
+    condition: it.condition || null,
+    buyingOptions: opts,
+    isAuction,
+    bidCount: Number.isFinite(Number(it.bidCount)) ? Number(it.bidCount) : null,
+  };
+}
+
+async function ebaySearch(q, buying, id, secret) {
   const token = await getEbayToken(id, secret);
   const resp = await fetch(
     "https://api.ebay.com/buy/browse/v1/item_summary/search?limit=20&q=" +
-      encodeURIComponent(q),
+      encodeURIComponent(q) + buyingFilter(buying),
     {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -183,15 +211,58 @@ async function ebaySearch(q, id, secret) {
   if (!resp.ok) return [];
   const items = (await resp.json()).itemSummaries || [];
   return items
-    .map((it) => ({
-      title: it.title || "",
-      price: Number(it?.price?.value) || null,
-      image: it.image?.imageUrl || it.thumbnailImages?.[0]?.imageUrl || null,
-      url: it.itemWebUrl || null,
-      condition: it.condition || null,
-    }))
-    .filter((r) => r.title && r.price && r.image && r.url)
+    .map(shapeEbayItem)
+    .filter((r) => r.title && r.price && r.image && r.url && r.itemId)
     .slice(0, 12);
+}
+
+// Full listing detail (all photos, description, condition, buying format) for
+// the wishlist item page. Fetched live so we don't cache eBay listing content.
+async function ebayItem(itemId, id, secret) {
+  const token = await getEbayToken(id, secret);
+  const resp = await fetch(
+    "https://api.ebay.com/buy/browse/v1/item/" + encodeURIComponent(itemId),
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      },
+    }
+  );
+  if (!resp.ok) return null;
+  const it = await resp.json();
+  const opts = it.buyingOptions || [];
+  const isAuction = opts.includes("AUCTION");
+  const bid = Number(it?.currentBidPrice?.value);
+  const fixed = Number(it?.price?.value);
+  const images = [
+    it.image?.imageUrl,
+    ...(it.additionalImages || []).map((i) => i.imageUrl),
+  ].filter(Boolean);
+  // shortDescription is plain text; description is full HTML — strip tags for a
+  // clean, themed read and cap length.
+  let desc = it.shortDescription || "";
+  if (!desc && it.description) {
+    desc = it.description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  return {
+    itemId: it.itemId || itemId,
+    title: it.title || "",
+    price: isAuction && Number.isFinite(bid) ? bid : Number.isFinite(fixed) ? fixed : null,
+    images,
+    description: desc.slice(0, 2000),
+    condition: it.condition || null,
+    conditionDescription: it.conditionDescription || null,
+    buyingOptions: opts,
+    isAuction,
+    bidCount: Number.isFinite(Number(it.bidCount)) ? Number(it.bidCount) : null,
+    url: it.itemWebUrl || null,
+    seller: it.seller?.username || null,
+    itemLocation:
+      [it.itemLocation?.city, it.itemLocation?.stateOrProvince, it.itemLocation?.country]
+        .filter(Boolean)
+        .join(", ") || null,
+  };
 }
 
 /* ---------------- Router ---------------- */
@@ -200,33 +271,45 @@ export default async (req) => {
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") || "").trim().slice(0, 100);
   const type = (url.searchParams.get("type") || "").toLowerCase();
-  if (!q) {
-    return new Response(JSON.stringify({ error: "missing q" }), { status: 400 });
-  }
 
   const discogsToken = process.env.DISCOGS_TOKEN;
   const reverbToken = process.env.REVERB_TOKEN;
   const ebayId = process.env.EBAY_CLIENT_ID;
   const ebaySecret = process.env.EBAY_CLIENT_SECRET;
   const serpKey = process.env.SERPAPI_KEY;
+  const jsonHeaders = { "Content-Type": "application/json" };
+
+  // Wishlist item detail: full listing (all photos, description, format).
+  const itemId = url.searchParams.get("item");
+  if (itemId) {
+    if (!ebayId || !ebaySecret) {
+      return new Response(JSON.stringify({ item: null }), { headers: jsonHeaders });
+    }
+    try {
+      const item = await ebayItem(itemId.slice(0, 120), ebayId, ebaySecret);
+      return new Response(JSON.stringify({ item }), { headers: jsonHeaders });
+    } catch {
+      return new Response(JSON.stringify({ item: null }), { headers: jsonHeaders });
+    }
+  }
 
   // Wishlist search mode: return a list of eBay items to choose from.
   if (url.searchParams.get("search")) {
+    if (!q) return new Response(JSON.stringify({ results: [] }), { headers: jsonHeaders });
     if (!ebayId || !ebaySecret) {
-      return new Response(JSON.stringify({ results: [] }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({ results: [] }), { headers: jsonHeaders });
     }
+    const buying = (url.searchParams.get("buying") || "").toLowerCase();
     try {
-      const results = await ebaySearch(q, ebayId, ebaySecret);
-      return new Response(JSON.stringify({ results }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      const results = await ebaySearch(q, buying, ebayId, ebaySecret);
+      return new Response(JSON.stringify({ results }), { headers: jsonHeaders });
     } catch {
-      return new Response(JSON.stringify({ results: [] }), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({ results: [] }), { headers: jsonHeaders });
     }
+  }
+
+  if (!q) {
+    return new Response(JSON.stringify({ error: "missing q" }), { status: 400 });
   }
 
   // Product image lookup — never allowed to break pricing.
