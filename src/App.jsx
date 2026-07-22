@@ -1917,6 +1917,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
   const [searching, setSearching] = useState(false);
   const [savedQuery, setSavedQuery] = useState("");
   const [openId, setOpenId] = useState(null);
+  const [preview, setPreview] = useState(null); // an eBay result being viewed pre-save
   const [recs, setRecs] = useState(recsCache?.items || null);
   const [recsGeneric, setRecsGeneric] = useState(recsCache?.generic || false);
   const [recsLoading, setRecsLoading] = useState(false);
@@ -1934,7 +1935,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
     let seeds = [...new Set([...recent, ...brands])].slice(0, 4);
     const generic = seeds.length === 0;
     if (generic) seeds = ["vintage vinyl records", "collectible trading cards", "vintage watches"];
-    const seedKey = seeds.slice(0, 2).join("|");
+    const seedKey = buying + "|" + seeds.slice(0, 2).join("|");
     if (recsCache && recsCache.seedKey === seedKey) {
       setRecs(recsCache.items);
       setRecsGeneric(recsCache.generic);
@@ -1947,7 +1948,10 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
         const savedSet = new Set(wishlist.map((w) => w.itemId).filter(Boolean));
         const lists = await Promise.all(
           seeds.slice(0, 2).map((s) =>
-            fetch("/api/price?search=1&q=" + encodeURIComponent(s))
+            fetch(
+              "/api/price?search=1&q=" + encodeURIComponent(s) +
+                (buying ? "&buying=" + buying : "")
+            )
               .then((r) => (r.ok ? r.json() : { results: [] }))
               .then((d) => d.results || [])
               .catch(() => [])
@@ -1981,7 +1985,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
       dead = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wishlist.length]);
+  }, [wishlist.length, buying]);
 
   // buyingOverride lets the filter buttons search with the just-clicked value
   // without waiting for the async state update.
@@ -2076,10 +2080,11 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
     : wishlist;
 
   // One eBay result card — shared by search results and recommendations.
+  // Tapping the card opens the full listing page; the Add button is separate.
   const renderResult = (r, i) => {
     const added = savedIds.has(r.itemId || r.url);
     return (
-      <div className="card wl-result" key={r.itemId || i}>
+      <div className="card wl-result" key={r.itemId || i} onClick={() => setPreview(r)}>
         <img
           className="thumb"
           src={r.image}
@@ -2101,13 +2106,30 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
         <button
           className="btn light small wl-add"
           disabled={added}
-          onClick={() => addResult(r)}
+          onClick={(e) => {
+            e.stopPropagation();
+            addResult(r);
+          }}
         >
           {added ? "Added ✓" : "＋ Add"}
         </button>
       </div>
     );
   };
+
+  // Turn an eBay result into the item shape the listing page reads.
+  const resultToItem = (r) => ({
+    id: null,
+    itemId: r.itemId || null,
+    item_name: r.title || "Item",
+    estimated_value_usd: Math.round(r.price),
+    image_url: r.image,
+    listing_url: r.url,
+    condition: r.condition || "",
+    isAuction: !!r.isAuction,
+    buyingOptions: r.buyingOptions || [],
+    priceHistory: [],
+  });
 
   // Full themed listing page for a saved item.
   if (openItem) {
@@ -2117,6 +2139,22 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
         onBack={() => setOpenId(null)}
         onRemove={() => removeItem(openItem.id)}
         onPersist={persistWish}
+      />
+    );
+  }
+
+  // Same page for an eBay result you're browsing (not yet saved).
+  if (preview) {
+    const already = savedIds.has(preview.itemId || preview.url);
+    return (
+      <WishlistItemPage
+        item={resultToItem(preview)}
+        onBack={() => setPreview(null)}
+        alreadySaved={already}
+        onAdd={async () => {
+          await addResult(preview);
+          setPreview(null);
+        }}
       />
     );
   }
@@ -2142,7 +2180,10 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
               className="input"
               placeholder="Search eBay for an item…"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {
+                setQ(e.target.value);
+                if (!e.target.value.trim()) setResults(null); // back to recommendations
+              }}
               onKeyDown={(e) => e.key === "Enter" && runSearch()}
             />
             <button className="btn dark" disabled={!q.trim() || searching} onClick={runSearch}>
@@ -2253,7 +2294,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
 /* Full eBay-style listing page for a saved wishlist item, in our theme.
    Photos, description, condition and buy format are fetched live so we never
    cache eBay listing content; the stored snapshot is the fallback. */
-function WishlistItemPage({ item, onBack, onRemove, onPersist }) {
+function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySaved }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(!!item.itemId);
   const [ended, setEnded] = useState(!item.itemId);
@@ -2261,9 +2302,9 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist }) {
 
   useEffect(() => {
     let dead = false;
-    // Weekly price-history refresh (median by name), same as owned items.
+    // Weekly price-history refresh (median by name) — saved items only.
     (async () => {
-      if (Date.now() - (item.priceLastChecked || 0) > PRICE_REFRESH_MS) {
+      if (onPersist && item.id && Date.now() - (item.priceLastChecked || 0) > PRICE_REFRESH_MS) {
         const res = await priceLookup("", item.item_name, "");
         const now = Date.now();
         if (res) {
@@ -2392,10 +2433,12 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist }) {
           </div>
         )}
 
-        <div className="wl-section">
-          <div className="wl-section-h">Price history</div>
-          <PriceGraph history={item.priceHistory || []} />
-        </div>
+        {item.priceHistory && item.priceHistory.length >= 2 && (
+          <div className="wl-section">
+            <div className="wl-section-h">Price history</div>
+            <PriceGraph history={item.priceHistory} />
+          </div>
+        )}
 
         {(detail?.seller || detail?.itemLocation) && (
           <div className="wl-seller">
@@ -2404,9 +2447,15 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist }) {
           </div>
         )}
 
-        <button className="btn light danger-text wl-remove" onClick={onRemove}>
-          Remove from wishlist
-        </button>
+        {onRemove ? (
+          <button className="btn light danger-text wl-remove" onClick={onRemove}>
+            Remove from wishlist
+          </button>
+        ) : (
+          <button className="btn dark wl-remove" disabled={alreadySaved} onClick={onAdd}>
+            {alreadySaved ? "On your wishlist ✓" : "＋ Add to wishlist"}
+          </button>
+        )}
       </div>
     </>
   );
