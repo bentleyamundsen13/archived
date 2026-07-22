@@ -154,17 +154,23 @@ async function freshCode() {
 // page never need to download every item. Recomputed client-side after
 // every mutation (the mutating client always has the full item list).
 export function computeAggregates(items) {
-  const totalValue = items.reduce(
+  // "Wanted" (wishlist) items don't count toward value — they're aspirational,
+  // not owned. They still appear in the collection and item count.
+  const owned = items.filter((i) => !i.wanted);
+  const totalValue = owned.reduce(
     (s, i) => s + (Number(i.estimated_value_usd) || 0),
     0
   );
-  const top = [...items].sort(
+  const top = [...owned].sort(
     (a, b) => (b.estimated_value_usd || 0) - (a.estimated_value_usd || 0)
   )[0];
   return {
     itemCount: items.length,
     totalValue,
-    coverImage: items.find((i) => i.image_url)?.image_url || null,
+    coverImage:
+      owned.find((i) => i.image_url)?.image_url ||
+      items.find((i) => i.image_url)?.image_url ||
+      null,
     topItemName: top?.item_name || null,
     topItemValue: top?.estimated_value_usd || 0,
   };

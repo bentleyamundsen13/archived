@@ -20,7 +20,6 @@ import {
   updateItemDoc,
   deleteItemDoc,
   setItemImage,
-  getItemImage,
   deleteItemImage,
   addPhotoDoc,
   getItemPhotos,
@@ -698,7 +697,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [detailHistory, setDetailHistory] = useState([]);
   const addPhotoRef = useRef(null);
-  const [zoomed, setZoomed] = useState(null);
   const [reveal, setReveal] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -722,7 +720,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const itemsReady = !cloud || cloudItems !== null;
   const detailItem = detailId ? items.find((i) => i.id === detailId) : null;
   const isOwner = !cloud || col.owner === user?.uid;
-  const total = items.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
+  const total = items.reduce(
+    (s, i) => s + (i.wanted ? 0 : Number(i.estimated_value_usd) || 0),
+    0
+  );
 
   // Search + sort. "recent" keeps the natural newest-first order; the search
   // bar only appears once a collection is big enough to need it.
@@ -908,21 +909,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     }
   }
 
-  function closeZoom() {
-    setZoomed((z) => (z ? { ...z, closing: true } : z));
-    setTimeout(() => setZoomed(null), 160);
-  }
-
-  async function openZoom(it) {
-    setZoomed({ url: it.image_url });
-    if (cloud) {
-      // Swap in the full-quality photo once it arrives.
-      try {
-        const full = await getItemImage(col.id, it.id);
-        if (full) setZoomed((z) => (z && !z.closing ? { ...z, url: full } : z));
-      } catch {}
-    }
-  }
 
   // Order photos so the main one comes first, then oldest→newest.
   function orderPhotos(photos, mainId) {
@@ -1296,10 +1282,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                       src={it.image_url}
                       alt=""
                       onError={(e) => (e.target.style.display = "none")}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openZoom(it);
-                      }}
                     />
                   ) : (
                     <div className="thumb ph">{(it.item_name || "?")[0]?.toUpperCase()}</div>
@@ -1307,6 +1289,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                   <div className="grow">
                     <div className="card-title">{it.item_name || "Unidentified"}</div>
                     <div className="card-sub">
+                      {it.wanted && <span className="want-badge">Wanted</span>}
                       {it.brand || "Unknown"}
                       {it.release_year ? ` · ${it.release_year}` : ""}
                     </div>
@@ -1407,7 +1390,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 detailItem.mainPhotoId ||
                 detailPhotos.find((p) => p.id !== "thumb")?.id
               }
-              onZoom={(url) => setZoomed({ url })}
               onSetMain={makeMainPhoto}
               onRemovePhoto={removePhoto}
               onAddPhoto={() => addPhotoRef.current?.click()}
@@ -1423,7 +1405,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 e.target.value = "";
               }}
             />
-            <div className="reveal-name">{detailItem.item_name || "Unidentified"}</div>
+            <div className="reveal-name">
+              {detailItem.wanted && <span className="want-badge">Wanted</span>}
+              {detailItem.item_name || "Unidentified"}
+            </div>
             <div className="card-sub">
               {detailItem.brand || "Unknown"}
               {detailItem.release_year ? ` · ${detailItem.release_year}` : ""}
@@ -1441,10 +1426,20 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             </div>
             <div className="reveal-row">
               <span className="reveal-value">{money(detailItem.estimated_value_usd)}</span>
-              {detailItem.market_label && (
-                <span className="card-sub">{detailItem.market_label}</span>
-              )}
+              <span className="card-sub">
+                {detailItem.wanted ? "asking price" : detailItem.market_label || ""}
+              </span>
             </div>
+            {detailItem.listing_url && (
+              <a
+                className="btn light listing-link"
+                href={detailItem.listing_url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View listing ↗
+              </a>
+            )}
             <PriceGraph history={detailHistory} />
             <div className="row detail-actions">
               <button
@@ -1472,14 +1467,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
         </div>
       )}
 
-      {zoomed && (
-        <div
-          className={"lightbox" + (zoomed.closing ? " closing" : "")}
-          onClick={closeZoom}
-        >
-          <img src={zoomed.url} alt="" />
-        </div>
-      )}
     </>
   );
 }
@@ -1768,7 +1755,7 @@ function PriceGraph({ history }) {
 /*  Photo carousel (inside the item card)                              */
 /* ------------------------------------------------------------------ */
 
-function PhotoCarousel({ photos, mainId, onZoom, onSetMain, onRemovePhoto, onAddPhoto, adding }) {
+function PhotoCarousel({ photos, mainId, onSetMain, onRemovePhoto, onAddPhoto, adding }) {
   const trackRef = useRef(null);
   const [index, setIndex] = useState(0);
 
@@ -1790,12 +1777,7 @@ function PhotoCarousel({ photos, mainId, onZoom, onSetMain, onRemovePhoto, onAdd
       <div className="carousel-track" ref={trackRef} onScroll={onScroll}>
         {photos.map((p) => (
           <div className="carousel-slide" key={p.id}>
-            <img
-              className="carousel-img"
-              src={p.data}
-              alt=""
-              onClick={() => onZoom(p.data)}
-            />
+            <img className="carousel-img" src={p.data} alt="" />
             {real(p) && (
               <button
                 className={"photo-star" + (p.id === mainId ? " active" : "")}
@@ -1873,11 +1855,28 @@ function ItemEditor({ item, onSave, onCancel }) {
     estimated_value_usd: item.estimated_value_usd ?? "",
     condition: item.condition || "",
     notable_details: item.notable_details || "",
+    listing_url: item.listing_url || "",
   });
+  const [wanted, setWanted] = useState(!!item.wanted);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
 
   return (
     <div className="card form pop">
+      <label className="label">Status</label>
+      <div className="segmented">
+        {[
+          ["owned", "Owned"],
+          ["wanted", "Wanted"],
+        ].map(([k, lbl]) => (
+          <button
+            key={k}
+            className={"seg" + ((k === "wanted") === wanted ? " active" : "")}
+            onClick={() => setWanted(k === "wanted")}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
       <label className="label">Item name</label>
       <input className="input" value={f.item_name} onChange={set("item_name")} />
       <label className="label">Made by</label>
@@ -1888,12 +1887,21 @@ function ItemEditor({ item, onSave, onCancel }) {
           <input className="input" inputMode="numeric" value={f.release_year} onChange={set("release_year")} />
         </div>
         <div className="col">
-          <label className="label">Value (USD)</label>
+          <label className="label">{wanted ? "Asking (USD)" : "Value (USD)"}</label>
           <input className="input" inputMode="decimal" value={f.estimated_value_usd} onChange={set("estimated_value_usd")} />
         </div>
       </div>
       <label className="label">Condition</label>
       <input className="input" value={f.condition} onChange={set("condition")} />
+      <label className="label">Listing link {wanted ? "" : "(optional)"}</label>
+      <input
+        className="input"
+        type="url"
+        inputMode="url"
+        placeholder="https://…"
+        value={f.listing_url}
+        onChange={set("listing_url")}
+      />
       <label className="label">Notes</label>
       <textarea className="input" rows="3" value={f.notable_details} onChange={set("notable_details")} />
       <div className="row">
@@ -1905,6 +1913,8 @@ function ItemEditor({ item, onSave, onCancel }) {
           onClick={() =>
             onSave({
               ...f,
+              wanted,
+              listing_url: f.listing_url.trim(),
               release_year: f.release_year ? Number(f.release_year) : null,
               estimated_value_usd: Number(f.estimated_value_usd) || 0,
             })
