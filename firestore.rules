@@ -24,9 +24,12 @@ service cloud.firestore {
       return signedIn() && request.auth.uid in data.members;
     }
 
-    // Legacy pre-sharing user blobs (kept as a migration safety net)
+    // Per-user data: the legacy pre-sharing blob and the standalone wishlist.
     match /users/{uid} {
       allow read, write: if signedIn() && request.auth.uid == uid;
+      match /wishlist/{itemId} {
+        allow read, write: if signedIn() && request.auth.uid == uid;
+      }
     }
 
     match /collections/{cid} {

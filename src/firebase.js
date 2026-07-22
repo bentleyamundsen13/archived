@@ -269,6 +269,36 @@ export async function setAggregates(cid, items) {
   await updateDoc(doc(db, "collections", cid), computeAggregates(items));
 }
 
+/* ---------------- wishlist (standalone, per user) ---------------- */
+// Items you want but don't own yet, saved from eBay search. Stored under the
+// user's own doc so only they can see it.
+
+export async function addWishlistItem(uid, item) {
+  const id = item.id || crypto.randomUUID();
+  await setDoc(doc(db, "users", uid, "wishlist", id), { ...item, id });
+  return id;
+}
+
+export function watchWishlist(uid, cb) {
+  const q = query(
+    collection(db, "users", uid, "wishlist"),
+    orderBy("created", "desc")
+  );
+  return onSnapshot(
+    q,
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    () => cb([])
+  );
+}
+
+export async function updateWishlistItem(uid, itemId, fields) {
+  await updateDoc(doc(db, "users", uid, "wishlist", itemId), fields);
+}
+
+export async function deleteWishlistItem(uid, itemId) {
+  await deleteDoc(doc(db, "users", uid, "wishlist", itemId));
+}
+
 /* ---------------- full-size item photos ---------------- */
 // Photos live one-per-doc under an item so we never hit Firestore's 1MB/doc
 // limit and don't need the paid Storage product. The item doc keeps a small

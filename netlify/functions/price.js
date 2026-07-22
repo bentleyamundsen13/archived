@@ -163,6 +163,37 @@ async function ebayPrice(q, id, secret) {
   };
 }
 
+/* ---------------- eBay search (wishlist) ---------------- */
+// Returns a LIST of matching eBay items (title, price, image, listing link)
+// for the user to pick from — used by the wishlist search. Buyers browsing
+// and saving items that link back to eBay is an intended use of the API.
+
+async function ebaySearch(q, id, secret) {
+  const token = await getEbayToken(id, secret);
+  const resp = await fetch(
+    "https://api.ebay.com/buy/browse/v1/item_summary/search?limit=20&q=" +
+      encodeURIComponent(q),
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      },
+    }
+  );
+  if (!resp.ok) return [];
+  const items = (await resp.json()).itemSummaries || [];
+  return items
+    .map((it) => ({
+      title: it.title || "",
+      price: Number(it?.price?.value) || null,
+      image: it.image?.imageUrl || it.thumbnailImages?.[0]?.imageUrl || null,
+      url: it.itemWebUrl || null,
+      condition: it.condition || null,
+    }))
+    .filter((r) => r.title && r.price && r.image && r.url)
+    .slice(0, 12);
+}
+
 /* ---------------- Router ---------------- */
 
 export default async (req) => {
@@ -178,6 +209,25 @@ export default async (req) => {
   const ebayId = process.env.EBAY_CLIENT_ID;
   const ebaySecret = process.env.EBAY_CLIENT_SECRET;
   const serpKey = process.env.SERPAPI_KEY;
+
+  // Wishlist search mode: return a list of eBay items to choose from.
+  if (url.searchParams.get("search")) {
+    if (!ebayId || !ebaySecret) {
+      return new Response(JSON.stringify({ results: [] }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    try {
+      const results = await ebaySearch(q, ebayId, ebaySecret);
+      return new Response(JSON.stringify({ results }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch {
+      return new Response(JSON.stringify({ results: [] }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
 
   // Product image lookup — never allowed to break pricing.
   let productImg = null;
