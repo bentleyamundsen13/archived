@@ -54,6 +54,35 @@ const money = (n) =>
     maximumFractionDigits: 0,
   });
 
+// Open an external link reliably, including from an installed (standalone) PWA
+// where a plain target="_blank" anchor is often swallowed.
+function openExternal(url) {
+  if (!url) return;
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (!w) window.location.href = url;
+}
+
+// Recent wishlist searches — the browsing signal behind "Recommended for you".
+const WL_RECENT_KEY = "wl_recent";
+function getRecentSearches() {
+  try {
+    return JSON.parse(localStorage.getItem(WL_RECENT_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function pushRecentSearch(term) {
+  try {
+    const prev = getRecentSearches();
+    const next = [term, ...prev.filter((t) => t.toLowerCase() !== term.toLowerCase())].slice(0, 8);
+    localStorage.setItem(WL_RECENT_KEY, JSON.stringify(next));
+  } catch {}
+}
+// First N words of a title — a rough "what is this" seed for recommendations.
+const firstWords = (s, n) => (s || "").trim().split(/\s+/).slice(0, n).join(" ");
+// Cached recommendations for the session so switching tabs doesn't refetch.
+let recsCache = null; // { seedKey, items, generic }
+
 // Compact form for tight spots like the donut center: $1.3M, $45K, $322.
 const compactMoney = (n) => {
   n = Number(n || 0);
@@ -1888,9 +1917,71 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
   const [searching, setSearching] = useState(false);
   const [savedQuery, setSavedQuery] = useState("");
   const [openId, setOpenId] = useState(null);
+  const [recs, setRecs] = useState(recsCache?.items || null);
+  const [recsGeneric, setRecsGeneric] = useState(recsCache?.generic || false);
+  const [recsLoading, setRecsLoading] = useState(false);
 
   const savedIds = new Set(wishlist.map((w) => w.itemId || w.listing_url));
   const openItem = openId ? wishlist.find((w) => w.id === openId) : null;
+
+  // Recommendations from the user's browsing (recent searches + saved items),
+  // shown on the search landing before they've typed anything.
+  useEffect(() => {
+    const recent = getRecentSearches();
+    const brands = [
+      ...new Set(wishlist.map((w) => firstWords(w.item_name, 3)).filter(Boolean)),
+    ];
+    let seeds = [...new Set([...recent, ...brands])].slice(0, 4);
+    const generic = seeds.length === 0;
+    if (generic) seeds = ["vintage vinyl records", "collectible trading cards", "vintage watches"];
+    const seedKey = seeds.slice(0, 2).join("|");
+    if (recsCache && recsCache.seedKey === seedKey) {
+      setRecs(recsCache.items);
+      setRecsGeneric(recsCache.generic);
+      return;
+    }
+    let dead = false;
+    setRecsLoading(true);
+    (async () => {
+      try {
+        const savedSet = new Set(wishlist.map((w) => w.itemId).filter(Boolean));
+        const lists = await Promise.all(
+          seeds.slice(0, 2).map((s) =>
+            fetch("/api/price?search=1&q=" + encodeURIComponent(s))
+              .then((r) => (r.ok ? r.json() : { results: [] }))
+              .then((d) => d.results || [])
+              .catch(() => [])
+          )
+        );
+        // Interleave the seed lists so recommendations feel varied.
+        const merged = [];
+        const seen = new Set();
+        const maxLen = Math.max(0, ...lists.map((l) => l.length));
+        for (let i = 0; i < maxLen; i++) {
+          for (const l of lists) {
+            const r = l[i];
+            if (!r || !r.itemId || seen.has(r.itemId) || savedSet.has(r.itemId)) continue;
+            seen.add(r.itemId);
+            merged.push(r);
+          }
+        }
+        const items = merged.slice(0, 12);
+        recsCache = { seedKey, items, generic };
+        if (!dead) {
+          setRecs(items);
+          setRecsGeneric(generic);
+        }
+      } catch {
+        if (!dead) setRecs([]);
+      } finally {
+        if (!dead) setRecsLoading(false);
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wishlist.length]);
 
   // buyingOverride lets the filter buttons search with the just-clicked value
   // without waiting for the async state update.
@@ -1906,6 +1997,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
       );
       const data = r.ok ? await r.json() : { results: [] };
       setResults(data.results || []);
+      pushRecentSearch(term);
     } catch {
       setResults([]);
     } finally {
@@ -1935,8 +2027,12 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
     if (cloud) {
       try {
         await addWishlistItem(user.uid, item);
-      } catch {
-        showToast("Couldn't add — check your connection.");
+      } catch (e) {
+        showToast(
+          e?.code === "permission-denied"
+            ? "Couldn't add — publish the updated Firebase rules (wishlist access)."
+            : "Couldn't add: " + (e?.code || e?.message || "unknown error")
+        );
         return;
       }
     } else {
@@ -1978,6 +2074,40 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
         (w.item_name || "").toLowerCase().includes(savedQuery.trim().toLowerCase())
       )
     : wishlist;
+
+  // One eBay result card — shared by search results and recommendations.
+  const renderResult = (r, i) => {
+    const added = savedIds.has(r.itemId || r.url);
+    return (
+      <div className="card wl-result" key={r.itemId || i}>
+        <img
+          className="thumb"
+          src={r.image}
+          alt=""
+          onError={(e) => (e.target.style.display = "none")}
+        />
+        <div className="grow">
+          <div className="card-title wl-title">{r.title}</div>
+          <div className="card-sub">
+            {money(r.price)}
+            {r.condition ? ` · ${r.condition}` : ""}
+          </div>
+          <span className={"wl-tag " + (r.isAuction ? "auction" : "bin")}>
+            {r.isAuction
+              ? `Auction${r.bidCount != null ? ` · ${r.bidCount} bid${r.bidCount === 1 ? "" : "s"}` : ""}`
+              : "Buy It Now"}
+          </span>
+        </div>
+        <button
+          className="btn light small wl-add"
+          disabled={added}
+          onClick={() => addResult(r)}
+        >
+          {added ? "Added ✓" : "＋ Add"}
+        </button>
+      </div>
+    );
+  };
 
   // Full themed listing page for a saved item.
   if (openItem) {
@@ -2033,51 +2163,34 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
               </button>
             ))}
           </div>
-          {results === null && !searching && (
-            <div className="empty">
-              <p>Search for anything you want.</p>
-            </div>
-          )}
+          {results === null && !searching ? (
+            recsLoading ? (
+              <div className="wl-inline-load">
+                <span className="spinner" /> Finding recommendations…
+              </div>
+            ) : recs && recs.length > 0 ? (
+              <>
+                <div className="wl-recs-head">
+                  {recsGeneric ? "Popular with collectors" : "Recommended for you"}
+                </div>
+                {!recsGeneric && (
+                  <p className="wl-recs-sub">Based on your recent searches and saved items.</p>
+                )}
+                <main className="list">{recs.map(renderResult)}</main>
+              </>
+            ) : (
+              <div className="empty">
+                <p>Search for anything you want.</p>
+              </div>
+            )
+          ) : null}
           {results && results.length === 0 && (
             <div className="empty">
               <p>No matches — try different words or filters.</p>
             </div>
           )}
           {results && results.length > 0 && (
-            <main className="list">
-              {results.map((r, i) => {
-                const added = savedIds.has(r.itemId || r.url);
-                return (
-                  <div className="card wl-result" key={i}>
-                    <img
-                      className="thumb"
-                      src={r.image}
-                      alt=""
-                      onError={(e) => (e.target.style.display = "none")}
-                    />
-                    <div className="grow">
-                      <div className="card-title wl-title">{r.title}</div>
-                      <div className="card-sub">
-                        {money(r.price)}
-                        {r.condition ? ` · ${r.condition}` : ""}
-                      </div>
-                      <span className={"wl-tag " + (r.isAuction ? "auction" : "bin")}>
-                        {r.isAuction
-                          ? `Auction${r.bidCount != null ? ` · ${r.bidCount} bid${r.bidCount === 1 ? "" : "s"}` : ""}`
-                          : "Buy It Now"}
-                      </span>
-                    </div>
-                    <button
-                      className="btn light small wl-add"
-                      disabled={added}
-                      onClick={() => addResult(r)}
-                    >
-                      {added ? "Added ✓" : "＋ Add"}
-                    </button>
-                  </div>
-                );
-              })}
-            </main>
+            <main className="list">{results.map(renderResult)}</main>
           )}
           <p className="wl-note">
             Prices and listings are from eBay. Tap a saved item for its full listing.
@@ -2249,7 +2362,16 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist }) {
         )}
 
         {url && (
-          <a className="btn dark wl-cta" href={url} target="_blank" rel="noreferrer">
+          <a
+            className="btn dark wl-cta"
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => {
+              e.preventDefault();
+              openExternal(url);
+            }}
+          >
             View on eBay ↗
           </a>
         )}
