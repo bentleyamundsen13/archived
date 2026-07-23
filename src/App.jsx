@@ -1614,8 +1614,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       )}
 
       {listingItem && (
-        <SellOnEbayModal
+        <ListOnEbayModal
           item={listingItem.item}
+          photoIds={listingItem.photoIds}
+          cid={col.id}
           onClose={() => setListingItem(null)}
           showToast={showToast}
         />
@@ -1625,9 +1627,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  List on eBay — current flow: prefill eBay's own listing screen      */
-/*  (eBay can't accept photos via a link, so we prefill the title and   */
-/*  copy price+description for a one-tap paste; photos added on eBay).   */
+/*  Sell on eBay — PRESERVED prefill fallback (not wired up).           */
+/*  Opens eBay's listing page with the title and copies the rest to the */
+/*  clipboard. Kept in case we want a no-API path; the active flow is    */
+/*  ListOnEbayModal below (direct Sell API).                            */
 /* ------------------------------------------------------------------ */
 
 const ZIP_KEY = "archived_ship_zip";
@@ -1704,9 +1707,8 @@ function SellOnEbayModal({ item, onClose, showToast }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  List on eBay — PRESERVED direct-API listing flow (not wired up).    */
-/*  Publishes a full listing incl. photos via the Sell API. Kept for    */
-/*  when we enable selling straight from Archived. See /api/ebay-list.  */
+/*  List on eBay — ACTIVE flow: publish a full listing (incl. photos)   */
+/*  straight from Archived via the Sell API. See /api/ebay-list.        */
 /* ------------------------------------------------------------------ */
 
 const EBAY_CONDITIONS = [

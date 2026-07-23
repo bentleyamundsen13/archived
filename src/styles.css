@@ -394,7 +394,13 @@ textarea.input { resize: vertical; }
 .sell-help { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 4px 0 14px; }
 .list-modal .input { margin-bottom: 2px; }
 .list-modal select.input { appearance: none; }
-.list-error { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
+.list-error {
+  color: var(--danger); font-size: 12.5px; line-height: 1.45; margin: 10px 0 0;
+  white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto;
+  user-select: text; -webkit-user-select: text;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-radius: 10px; padding: 10px 12px;
+}
 .list-done { text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 10px 0; }
 .list-done-check {
   width: 54px; height: 54px; border-radius: 999px; background: var(--up); color: #fff;
