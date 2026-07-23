@@ -9,6 +9,8 @@ import { refreshUserToken } from "../../lib/ebayAuth.js";
 import {
   getBusinessPolicies,
   suggestCategory,
+  allowedConditionIds,
+  pickCondition,
   ensureLocation,
   putInventoryItem,
   createOffer,
@@ -46,6 +48,10 @@ export default async (req) => {
     const categoryId = await suggestCategory(accessToken, title);
     if (!categoryId) return json({ error: "Couldn't match this to an eBay category — try a clearer title." }, 400);
 
+    step = "condition";
+    const allowedIds = await allowedConditionIds(accessToken, categoryId);
+    const finalCondition = pickCondition(ebayCondition(condition), allowedIds);
+
     step = "images";
     const origin = new URL(req.url).origin;
     const imageUrls = (photoIds || [])
@@ -66,7 +72,7 @@ export default async (req) => {
     const sku = "arch-" + String(itemId).slice(0, 30);
     await putInventoryItem(accessToken, sku, {
       availability: { shipToLocationAvailability: { quantity: 1 } },
-      condition: ebayCondition(condition),
+      condition: finalCondition,
       product: {
         title: String(title).slice(0, 80),
         description: String(description || title).slice(0, 4000),
