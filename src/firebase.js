@@ -318,13 +318,26 @@ export async function deleteWishlistItem(uid, itemId) {
 export async function startEbayConnect() {
   if (!auth?.currentUser) throw new Error("Sign in first to connect eBay.");
   const idToken = await auth.currentUser.getIdToken();
-  const r = await fetch("/api/ebay-connect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok || !data.url) throw new Error(data.error || "Couldn't start eBay connect.");
+  let r, text;
+  try {
+    r = await fetch("/api/ebay-connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    text = await r.text();
+  } catch (e) {
+    throw new Error("Network error reaching eBay connect: " + (e?.message || e));
+  }
+  let data = {};
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // non-JSON = a platform error (crash/timeout); show status + snippet
+  }
+  if (!r.ok || !data.url) {
+    throw new Error(data.error || `eBay connect failed (HTTP ${r.status}): ${(text || "").slice(0, 160)}`);
+  }
   window.location.href = data.url; // hand off to eBay's consent screen
 }
 
