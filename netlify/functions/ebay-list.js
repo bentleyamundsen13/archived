@@ -11,6 +11,7 @@ import {
   suggestCategory,
   allowedConditionIds,
   pickCondition,
+  conditionCandidates,
   ensureLocation,
   putInventoryItem,
   createOffer,
@@ -70,7 +71,7 @@ export default async (req) => {
 
     step = "inventory";
     const sku = "arch-" + String(itemId).slice(0, 30);
-    await putInventoryItem(accessToken, sku, {
+    const inventoryBody = {
       availability: { shipToLocationAvailability: { quantity: 1 } },
       condition: finalCondition,
       product: {
@@ -79,7 +80,8 @@ export default async (req) => {
         imageUrls,
         ...(brand ? { aspects: { Brand: [String(brand)] } } : {}),
       },
-    });
+    };
+    await putInventoryItem(accessToken, sku, inventoryBody);
 
     step = "offer";
     const offerId = await createOffer(accessToken, {
@@ -94,8 +96,27 @@ export default async (req) => {
       merchantLocationKey: locKey,
     });
 
+    // Publish, cycling through conditions until eBay accepts one — its
+    // per-category condition metadata isn't always right, so we just try.
     step = "publish";
-    const listingId = await publishOffer(accessToken, offerId);
+    const candidates = conditionCandidates(finalCondition, allowedIds);
+    let listingId = null;
+    let lastErr = null;
+    for (const cond of candidates) {
+      if (cond !== inventoryBody.condition) {
+        inventoryBody.condition = cond;
+        await putInventoryItem(accessToken, sku, inventoryBody);
+      }
+      try {
+        listingId = await publishOffer(accessToken, offerId);
+        break;
+      } catch (e) {
+        lastErr = e;
+        // Keep trying only for condition-related rejections.
+        if (!/condition|2505\d|2502[01]/i.test(String(e?.message || ""))) throw e;
+      }
+    }
+    if (!listingId) throw lastErr || new Error("publish failed");
     return json({ ok: true, listingId, url: `https://www.ebay.com/itm/${listingId}` });
   } catch (e) {
     return json({ error: `Failed at "${step}": ${e?.message || String(e)}` }, 400);
