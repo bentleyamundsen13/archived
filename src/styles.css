@@ -389,6 +389,18 @@ textarea.input { resize: vertical; }
   margin: 14px 0 4px;
 }
 
+/* list on eBay */
+.list-ebay-btn { display: block; width: 100%; margin-top: 14px; }
+.list-modal .input { margin-bottom: 2px; }
+.list-modal select.input { appearance: none; }
+.list-error { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
+.list-done { text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 10px 0; }
+.list-done-check {
+  width: 54px; height: 54px; border-radius: 999px; background: var(--up); color: #fff;
+  font-size: 28px; line-height: 54px; text-align: center;
+}
+.list-done .btn { width: 100%; }
+
 /* eBay account card */
 .ebay-card { margin-top: 14px; }
 .ebay-row { display: flex; align-items: center; gap: 12px; }

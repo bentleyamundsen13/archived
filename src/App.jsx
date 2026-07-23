@@ -34,6 +34,7 @@ import {
   getEbayStatus,
   disconnectEbay,
   checkEbayReady,
+  listOnEbay,
 } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -805,6 +806,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [listingItem, setListingItem] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [detailClosing, setDetailClosing] = useState(false);
   const [detailPhotos, setDetailPhotos] = useState([]);
@@ -1570,6 +1572,21 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
               </a>
             )}
             <PriceGraph history={detailHistory} />
+            {cloud && (
+              <button
+                className="btn dark list-ebay-btn"
+                onClick={() => {
+                  const item = detailItem;
+                  const photoIds = detailPhotos
+                    .filter((p) => p.id && p.id !== "thumb")
+                    .map((p) => p.id);
+                  closeDetailNow();
+                  setListingItem({ item, photoIds });
+                }}
+              >
+                List on eBay
+              </button>
+            )}
             <div className="row detail-actions">
               <button
                 className="btn light"
@@ -1596,7 +1613,173 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
         </div>
       )}
 
+      {listingItem && (
+        <ListOnEbayModal
+          item={listingItem.item}
+          photoIds={listingItem.photoIds}
+          cid={col.id}
+          onClose={() => setListingItem(null)}
+          showToast={showToast}
+        />
+      )}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  List on eBay                                                        */
+/* ------------------------------------------------------------------ */
+
+const EBAY_CONDITIONS = [
+  ["NEW", "New"],
+  ["USED_EXCELLENT", "Used — Excellent"],
+  ["USED_VERY_GOOD", "Used — Very good"],
+  ["USED_GOOD", "Used — Good"],
+  ["USED_ACCEPTABLE", "Used — Acceptable"],
+  ["FOR_PARTS_OR_NOT_WORKING", "For parts / not working"],
+];
+
+const ZIP_KEY = "archived_ship_zip";
+
+function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
+  const [title, setTitle] = useState(
+    [item.brand, item.item_name].filter(Boolean).join(" ").slice(0, 80)
+  );
+  const [price, setPrice] = useState(item.estimated_value_usd ? String(item.estimated_value_usd) : "");
+  const [condition, setCondition] = useState("USED_GOOD");
+  const [zip, setZip] = useState(localStorage.getItem(ZIP_KEY) || "");
+  const [description, setDescription] = useState(
+    [item.notable_details, item.condition ? `Condition: ${item.condition}` : ""]
+      .filter(Boolean)
+      .join("\n\n")
+  );
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null); // { url } on success
+  const [error, setError] = useState("");
+
+  async function submit() {
+    setError("");
+    if (!title.trim() || !price || !zip.trim()) {
+      setError("Title, price, and ZIP are required.");
+      return;
+    }
+    if (!photoIds || photoIds.length === 0) {
+      setError("This item has no photos to list. Add a photo first.");
+      return;
+    }
+    setBusy(true);
+    try {
+      localStorage.setItem(ZIP_KEY, zip.trim());
+      const res = await listOnEbay({
+        cid,
+        itemId: item.id,
+        photoIds,
+        title: title.trim(),
+        price: Number(price),
+        condition,
+        description: description.trim(),
+        brand: item.brand || "",
+        zip: zip.trim(),
+      });
+      setResult(res);
+      showToast?.("Listed on eBay!");
+    } catch (e) {
+      setError(e?.message || "Listing failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="reveal-backdrop tappable" onClick={onClose}>
+      <div className="card reveal-card list-modal" onClick={(e) => e.stopPropagation()}>
+        {result ? (
+          <div className="list-done">
+            <div className="list-done-check">✓</div>
+            <div className="reveal-name">It's live on eBay</div>
+            <a
+              className="btn dark wl-cta"
+              href={result.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                openExternal(result.url);
+              }}
+            >
+              View your listing ↗
+            </a>
+            <button className="btn light" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="reveal-name">List on eBay</div>
+            <div className="item-meta">{photoIds?.length || 0} photo(s) will be used</div>
+
+            <label className="label">Title</label>
+            <input
+              className="input"
+              maxLength={80}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <div className="row">
+              <div className="col">
+                <label className="label">Price (USD)</label>
+                <input
+                  className="input"
+                  inputMode="decimal"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                />
+              </div>
+              <div className="col">
+                <label className="label">Ship-from ZIP</label>
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  value={zip}
+                  onChange={(e) => setZip(e.target.value)}
+                />
+              </div>
+            </div>
+            <label className="label">Condition</label>
+            <select
+              className="input"
+              value={condition}
+              onChange={(e) => setCondition(e.target.value)}
+            >
+              {EBAY_CONDITIONS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+            <label className="label">Description</label>
+            <textarea
+              className="input"
+              rows="4"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+
+            {error && <p className="list-error">{error}</p>}
+
+            <div className="row">
+              <button className="btn light" disabled={busy} onClick={onClose}>
+                Cancel
+              </button>
+              <button className="btn dark" disabled={busy} onClick={submit}>
+                {busy ? <span className="spinner" /> : "List it"}
+              </button>
+            </div>
+            <p className="wl-note">Publishes a live, buyable listing on your eBay account.</p>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
