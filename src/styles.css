@@ -392,6 +392,7 @@ textarea.input { resize: vertical; }
 /* list on eBay */
 .list-ebay-btn { display: block; width: 100%; margin-top: 14px; }
 .sell-help { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 4px 0 14px; }
+.aspect-head { font-size: 12px; font-weight: 600; color: var(--graphite); margin: 16px 0 2px; }
 .list-modal .input { margin-bottom: 2px; }
 .list-modal select.input { appearance: none; }
 .list-error {

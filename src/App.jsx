@@ -35,6 +35,7 @@ import {
   disconnectEbay,
   checkEbayReady,
   listOnEbay,
+  ebayListPrep,
 } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -1735,6 +1736,26 @@ function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null); // { url } on success
   const [error, setError] = useState("");
+  const [aspects, setAspects] = useState([]); // required item specifics for the category
+  const [aspectVals, setAspectVals] = useState({});
+  const [prepping, setPrepping] = useState(true);
+
+  // Ask eBay which item specifics this category requires (based on the title).
+  const loadRequirements = async (t) => {
+    setPrepping(true);
+    try {
+      const res = await ebayListPrep(t);
+      setAspects(res.aspects || []);
+    } catch {
+      setAspects([]);
+    } finally {
+      setPrepping(false);
+    }
+  };
+  useEffect(() => {
+    loadRequirements(title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function submit() {
     setError("");
@@ -1744,6 +1765,11 @@ function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
     }
     if (!photoIds || photoIds.length === 0) {
       setError("This item has no photos to list. Add a photo first.");
+      return;
+    }
+    const missing = aspects.find((a) => !aspectVals[a.name]?.trim());
+    if (missing) {
+      setError(`eBay requires "${missing.name}" for this category — please fill it in.`);
       return;
     }
     setBusy(true);
@@ -1759,6 +1785,7 @@ function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
         description: description.trim(),
         brand: item.brand || "",
         zip: zip.trim(),
+        aspects: aspectVals,
       });
       setResult(res);
       showToast?.("Listed on eBay!");
@@ -1803,6 +1830,7 @@ function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
               maxLength={80}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => loadRequirements(title)}
             />
             <div className="row">
               <div className="col">
@@ -1836,6 +1864,56 @@ function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
                 </option>
               ))}
             </select>
+
+            {prepping ? (
+              <div className="wl-inline-load">
+                <span className="spinner" /> Checking eBay's requirements…
+              </div>
+            ) : (
+              aspects.length > 0 && (
+                <>
+                  <div className="aspect-head">eBay requires these for this category:</div>
+                  {aspects.map((a) => (
+                    <div key={a.name}>
+                      <label className="label">{a.name}</label>
+                      {a.mode === "SELECTION_ONLY" && a.values.length > 0 ? (
+                        <select
+                          className="input"
+                          value={aspectVals[a.name] || ""}
+                          onChange={(e) =>
+                            setAspectVals((v) => ({ ...v, [a.name]: e.target.value }))
+                          }
+                        >
+                          <option value="">Select…</option>
+                          {a.values.map((val) => (
+                            <option key={val} value={val}>
+                              {val}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="input"
+                          list={a.values.length ? `asp-${a.name}` : undefined}
+                          value={aspectVals[a.name] || ""}
+                          onChange={(e) =>
+                            setAspectVals((v) => ({ ...v, [a.name]: e.target.value }))
+                          }
+                        />
+                      )}
+                      {a.values.length > 0 && a.mode !== "SELECTION_ONLY" && (
+                        <datalist id={`asp-${a.name}`}>
+                          {a.values.map((val) => (
+                            <option key={val} value={val} />
+                          ))}
+                        </datalist>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )
+            )}
+
             <label className="label">Description</label>
             <textarea
               className="input"

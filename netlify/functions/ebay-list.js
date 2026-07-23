@@ -26,8 +26,17 @@ export default async (req) => {
   let step = "start";
   try {
     const b = await req.json();
-    const { idToken, cid, itemId, photoIds, title, price, condition, description, brand, zip } = b;
+    const { idToken, cid, itemId, photoIds, title, price, condition, description, brand, zip, aspects } = b;
     if (!title || !price || !zip) return json({ error: "Missing title, price, or ZIP." }, 400);
+
+    // User-entered required item specifics -> eBay's { name: [value] } shape.
+    const productAspects = {};
+    if (brand) productAspects.Brand = [String(brand)];
+    if (aspects && typeof aspects === "object") {
+      for (const [k, v] of Object.entries(aspects)) {
+        if (v != null && String(v).trim()) productAspects[k] = [String(v).trim()];
+      }
+    }
 
     step = "auth";
     const uid = await verifyFirebaseIdToken(idToken);
@@ -78,7 +87,7 @@ export default async (req) => {
         title: String(title).slice(0, 80),
         description: String(description || title).slice(0, 4000),
         imageUrls,
-        ...(brand ? { aspects: { Brand: [String(brand)] } } : {}),
+        ...(Object.keys(productAspects).length ? { aspects: productAspects } : {}),
       },
     };
     await putInventoryItem(accessToken, sku, inventoryBody);
