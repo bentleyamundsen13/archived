@@ -389,6 +389,15 @@ textarea.input { resize: vertical; }
   margin: 14px 0 4px;
 }
 
+/* gain / loss */
+.gain { font-size: 13px; font-weight: 600; letter-spacing: -.01em; margin-top: 3px; }
+.gain.up { color: var(--up); }
+.gain.down { color: var(--down); }
+.gain.big { font-size: 17px; }
+.gain-label { color: var(--graphite); font-weight: 500; }
+.paid-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.paid-row .gain { margin-top: 0; }
+
 /* wishlist */
 .wl-search { display: flex; gap: 8px; margin-top: 14px; }
 .wl-search .input { flex: 1; min-width: 0; margin: 0; }

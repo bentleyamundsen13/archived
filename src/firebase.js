@@ -164,6 +164,15 @@ export function computeAggregates(items) {
   const top = [...owned].sort(
     (a, b) => (b.estimated_value_usd || 0) - (a.estimated_value_usd || 0)
   )[0];
+  // Cost basis / gain–loss: only items you've entered a purchase price for
+  // count toward P/L. We compare the current value of just those items against
+  // what you paid, so the percentage is apples-to-apples.
+  const withCost = owned.filter((i) => Number(i.purchase_price_usd) > 0);
+  const costBasis = withCost.reduce((s, i) => s + Number(i.purchase_price_usd), 0);
+  const costValue = withCost.reduce(
+    (s, i) => s + (Number(i.estimated_value_usd) || 0),
+    0
+  );
   return {
     itemCount: items.length,
     totalValue,
@@ -173,6 +182,9 @@ export function computeAggregates(items) {
       null,
     topItemName: top?.item_name || null,
     topItemValue: top?.estimated_value_usd || 0,
+    costBasis,
+    costValue,
+    costCount: withCost.length,
   };
 }
 

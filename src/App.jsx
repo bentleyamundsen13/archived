@@ -62,6 +62,27 @@ function openExternal(url) {
   if (!w) window.location.href = url;
 }
 
+// Gain/loss vs what you paid. Returns null when there's no purchase price.
+function gainLoss(paid, value) {
+  paid = Number(paid) || 0;
+  if (paid <= 0) return null;
+  const diff = (Number(value) || 0) - paid;
+  const pct = Math.round((diff / paid) * 100);
+  return { up: diff >= 0, diff, pct };
+}
+
+// A colored ▲/▼ gain-loss line. `label` is an optional trailing note.
+function GainLine({ paid, value, label, big }) {
+  const g = gainLoss(paid, value);
+  if (!g) return null;
+  return (
+    <div className={"gain" + (g.up ? " up" : " down") + (big ? " big" : "")}>
+      {g.up ? "▲" : "▼"} {money(Math.abs(g.diff))} ({g.up ? "+" : "−"}
+      {Math.abs(g.pct)}%){label ? <span className="gain-label"> {label}</span> : null}
+    </div>
+  );
+}
+
 // Recent wishlist searches — the browsing signal behind "Recommended for you".
 const WL_RECENT_KEY = "wl_recent";
 function getRecentSearches() {
@@ -784,6 +805,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const detailItem = detailId ? items.find((i) => i.id === detailId) : null;
   const isOwner = !cloud || col.owner === user?.uid;
   const total = items.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
+  const withCost = items.filter((i) => Number(i.purchase_price_usd) > 0);
+  const costBasis = withCost.reduce((s, i) => s + Number(i.purchase_price_usd), 0);
+  const costValue = withCost.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
 
   // Search + sort. "recent" keeps the natural newest-first order; the search
   // bar only appears once a collection is big enough to need it.
@@ -1231,6 +1255,13 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
         </div>
         <div className="topbar-total">
           <div className="topbar-total-num">{money(total)}</div>
+          {costBasis > 0 && (
+            <GainLine
+              paid={costBasis}
+              value={costValue}
+              label={`on ${money(costBasis)}`}
+            />
+          )}
         </div>
       </header>
 
@@ -1486,6 +1517,18 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 <span className="card-sub">{detailItem.market_label}</span>
               )}
             </div>
+            {Number(detailItem.purchase_price_usd) > 0 && (
+              <div className="paid-row">
+                <GainLine
+                  paid={detailItem.purchase_price_usd}
+                  value={detailItem.estimated_value_usd}
+                />
+                <span className="card-sub">
+                  Paid {money(detailItem.purchase_price_usd)}
+                  {detailItem.purchase_date ? ` · ${detailItem.purchase_date}` : ""}
+                </span>
+              </div>
+            )}
             {detailItem.listing_url && (
               <a
                 className="btn light listing-link"
@@ -1536,6 +1579,8 @@ function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
 
   const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
   const totalItems = collections.reduce((s, c) => s + (c.itemCount || 0), 0);
+  const totalCost = collections.reduce((s, c) => s + (c.costBasis || 0), 0);
+  const totalCostValue = collections.reduce((s, c) => s + (c.costValue || 0), 0);
   const top = collections.reduce(
     (best, c) =>
       (c.topItemValue || 0) > (best?.value || 0)
@@ -1647,6 +1692,9 @@ function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
         <div className="stat card rise">
           <div className="stat-num">{money(totalValue)}</div>
           <div className="stat-label">Total value</div>
+          {totalCost > 0 && (
+            <GainLine paid={totalCost} value={totalCostValue} label={`on ${money(totalCost)}`} />
+          )}
         </div>
         <div className="stat card rise" style={{ animationDelay: "60ms" }}>
           <div className="stat-num">{collections.length}</div>
@@ -2471,6 +2519,8 @@ function ItemEditor({ item, onSave, onCancel }) {
     brand: item.brand || "",
     release_year: item.release_year || "",
     estimated_value_usd: item.estimated_value_usd ?? "",
+    purchase_price_usd: item.purchase_price_usd ?? "",
+    purchase_date: item.purchase_date || "",
     condition: item.condition || "",
     notable_details: item.notable_details || "",
     listing_url: item.listing_url || "",
@@ -2491,6 +2541,16 @@ function ItemEditor({ item, onSave, onCancel }) {
         <div className="col">
           <label className="label">Value (USD)</label>
           <input className="input" inputMode="decimal" value={f.estimated_value_usd} onChange={set("estimated_value_usd")} />
+        </div>
+      </div>
+      <div className="row">
+        <div className="col">
+          <label className="label">Paid (USD)</label>
+          <input className="input" inputMode="decimal" placeholder="what you paid" value={f.purchase_price_usd} onChange={set("purchase_price_usd")} />
+        </div>
+        <div className="col">
+          <label className="label">Acquired</label>
+          <input className="input" type="date" value={f.purchase_date} onChange={set("purchase_date")} />
         </div>
       </div>
       <label className="label">Condition</label>
@@ -2518,6 +2578,8 @@ function ItemEditor({ item, onSave, onCancel }) {
               listing_url: f.listing_url.trim(),
               release_year: f.release_year ? Number(f.release_year) : null,
               estimated_value_usd: Number(f.estimated_value_usd) || 0,
+              purchase_price_usd: Number(f.purchase_price_usd) || 0,
+              purchase_date: f.purchase_date || null,
             })
           }
         >
