@@ -418,6 +418,27 @@ textarea.input { resize: vertical; }
   margin: 18px auto 0; max-width: 34ch; line-height: 1.45;
 }
 
+/* price-drop alerts */
+.tab-icon-wrap { position: relative; display: inline-flex; }
+.tab-badge {
+  position: absolute; top: -5px; right: -8px; min-width: 15px; height: 15px;
+  padding: 0 4px; border-radius: 999px; background: var(--danger); color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
+}
+.wl-alert-banner {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink); border-radius: 12px; padding: 11px 14px; margin: 4px 0 12px;
+  font-size: 13px; font-weight: 500;
+}
+.wl-hit { outline: 1.5px solid var(--up); outline-offset: -1.5px; }
+.wl-tag.hit { background: color-mix(in srgb, var(--up) 18%, transparent); color: var(--up); }
+.wl-target-row { display: flex; align-items: center; gap: 8px; }
+.wl-target-prefix { font-size: 13px; color: var(--graphite); white-space: nowrap; }
+.wl-target-input { flex: 1; min-width: 0; margin: 0; }
+.wl-target-row .btn { flex-shrink: 0; }
+.wl-target-status { margin-top: 8px; font-size: 13px; color: var(--graphite); }
+.wl-target-status.hit { color: var(--up); font-weight: 600; }
+
 /* buy-format tag */
 .wl-tag {
   display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 600;

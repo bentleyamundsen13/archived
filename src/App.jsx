@@ -62,6 +62,12 @@ function openExternal(url) {
   if (!w) window.location.href = url;
 }
 
+// A wishlist item is "on alert" when its tracked price has reached the target.
+const belowTarget = (w) =>
+  Number(w.target_price_usd) > 0 &&
+  Number(w.estimated_value_usd) > 0 &&
+  Number(w.estimated_value_usd) <= Number(w.target_price_usd);
+
 // Gain/loss vs what you paid. Returns null when there's no purchase price.
 function gainLoss(paid, value) {
   paid = Number(paid) || 0;
@@ -171,6 +177,7 @@ async function priceLookup(brand, itemName, type) {
 }
 
 const PRICE_REFRESH_MS = 7 * 24 * 60 * 60 * 1000; // weekly
+const ALERT_REFRESH_MS = 12 * 60 * 60 * 1000; // targeted wishlist items: twice daily
 
 /* ------------------------------------------------------------------ */
 /*  Root                                                               */
@@ -334,6 +341,7 @@ export default function App() {
 
   const collections = cloud ? cols : guestData.collections;
   const wishlist = cloud ? cloudWishlist : guestData.wishlist || [];
+  const alertCount = wishlist.filter(belowTarget).length;
   const open = collections.find((c) => c.id === openId);
 
   return (
@@ -405,9 +413,12 @@ export default function App() {
           className={"tab" + (tab === "wishlist" ? " active" : "")}
           onClick={() => setTab("wishlist")}
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M12 20.5S3.5 15 3.5 8.9A4.4 4.4 0 0 1 12 6.9a4.4 4.4 0 0 1 8.5 2c0 6.1-8.5 11.6-8.5 11.6z" />
-          </svg>
+          <span className="tab-icon-wrap">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M12 20.5S3.5 15 3.5 8.9A4.4 4.4 0 0 1 12 6.9a4.4 4.4 0 0 1 8.5 2c0 6.1-8.5 11.6-8.5 11.6z" />
+            </svg>
+            {alertCount > 0 && <span className="tab-badge">{alertCount}</span>}
+          </span>
           Wishlist
         </button>
         <button
@@ -1972,6 +1983,43 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
 
   const savedIds = new Set(wishlist.map((w) => w.itemId || w.listing_url));
   const openItem = openId ? wishlist.find((w) => w.id === openId) : null;
+  const alerts = wishlist.filter(belowTarget);
+
+  // Keep target-priced items fresh (lighter cadence than the weekly refresh) so
+  // an alert fires soon after a drop — runs once when the wishlist first loads.
+  const didAlertRefresh = useRef(false);
+  useEffect(() => {
+    if (didAlertRefresh.current || wishlist.length === 0) return;
+    didAlertRefresh.current = true;
+    const targeted = wishlist.filter(
+      (w) =>
+        Number(w.target_price_usd) > 0 &&
+        Date.now() - (w.priceLastChecked || 0) > ALERT_REFRESH_MS
+    );
+    if (targeted.length === 0) return;
+    let dead = false;
+    (async () => {
+      for (const w of targeted) {
+        if (dead) return;
+        const res = await priceLookup("", w.item_name, "");
+        const now = Date.now();
+        if (res) {
+          const history = [...(w.priceHistory || []), { t: now, v: res.value }].slice(-260);
+          persistWish(w.id, {
+            estimated_value_usd: res.value,
+            priceHistory: history,
+            priceLastChecked: now,
+          });
+        } else {
+          persistWish(w.id, { priceLastChecked: now });
+        }
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wishlist.length]);
 
   // Recommendations from the user's browsing (recent searches + saved items),
   // shown on the search landing before they've typed anything.
@@ -2302,36 +2350,48 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
               <p>Nothing saved yet.</p>
             </div>
           )}
+          {alerts.length > 0 && (
+            <div className="wl-alert-banner">
+              🔔 {alerts.length} {alerts.length === 1 ? "item has" : "items have"} hit your
+              target price.
+            </div>
+          )}
           <main className="list">
-            {savedFiltered.map((it, idx) => (
-              <article
-                key={it.id}
-                className="card item rise"
-                style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}
-                onClick={() => setOpenId(it.id)}
-              >
-                <div className="item-row">
-                  {it.image_url ? (
-                    <img
-                      className="thumb"
-                      src={it.image_url}
-                      alt=""
-                      onError={(e) => (e.target.style.display = "none")}
-                    />
-                  ) : (
-                    <div className="thumb ph">{(it.item_name || "?")[0]?.toUpperCase()}</div>
-                  )}
-                  <div className="grow">
-                    <div className="card-title wl-title">{it.item_name || "Item"}</div>
-                    <div className="card-sub">
-                      {it.isAuction ? "Auction" : "Buy It Now"}
-                      {it.condition ? ` · ${it.condition}` : ""}
+            {savedFiltered.map((it, idx) => {
+              const hit = belowTarget(it);
+              return (
+                <article
+                  key={it.id}
+                  className={"card item rise" + (hit ? " wl-hit" : "")}
+                  style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}
+                  onClick={() => setOpenId(it.id)}
+                >
+                  <div className="item-row">
+                    {it.image_url ? (
+                      <img
+                        className="thumb"
+                        src={it.image_url}
+                        alt=""
+                        onError={(e) => (e.target.style.display = "none")}
+                      />
+                    ) : (
+                      <div className="thumb ph">{(it.item_name || "?")[0]?.toUpperCase()}</div>
+                    )}
+                    <div className="grow">
+                      <div className="card-title wl-title">{it.item_name || "Item"}</div>
+                      <div className="card-sub">
+                        {it.isAuction ? "Auction" : "Buy It Now"}
+                        {it.condition ? ` · ${it.condition}` : ""}
+                      </div>
+                      {hit && (
+                        <span className="wl-tag hit">▼ Target hit · {money(it.target_price_usd)}</span>
+                      )}
                     </div>
+                    <div className="card-value">{money(it.estimated_value_usd)}</div>
                   </div>
-                  <div className="card-value">{money(it.estimated_value_usd)}</div>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </main>
         </>
       )}
@@ -2488,6 +2548,13 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
           </div>
         )}
 
+        {onPersist && item.id && (
+          <div className="wl-section">
+            <div className="wl-section-h">Price alert</div>
+            <TargetSetter item={item} onPersist={onPersist} />
+          </div>
+        )}
+
         {(detail?.seller || detail?.itemLocation) && (
           <div className="wl-seller">
             {detail.seller && <span>Seller · {detail.seller}</span>}
@@ -2505,6 +2572,41 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
           </button>
         )}
       </div>
+    </>
+  );
+}
+
+// Set/clear a target price on a saved wishlist item; the app flags it when the
+// tracked price reaches the target (see belowTarget + the Wishlist tab badge).
+function TargetSetter({ item, onPersist }) {
+  const [val, setVal] = useState(item.target_price_usd ? String(item.target_price_usd) : "");
+  const target = Number(item.target_price_usd) || 0;
+  const hit = belowTarget(item);
+  return (
+    <>
+      <div className="wl-target-row">
+        <span className="wl-target-prefix">Alert me under $</span>
+        <input
+          className="input wl-target-input"
+          inputMode="decimal"
+          placeholder="0"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+        />
+        <button
+          className="btn light small"
+          onClick={() => onPersist(item.id, { target_price_usd: Number(val) || 0 })}
+        >
+          Save
+        </button>
+      </div>
+      {target > 0 && (
+        <div className={"wl-target-status" + (hit ? " hit" : "")}>
+          {hit
+            ? `▼ Now ${money(item.estimated_value_usd)} — at or below your ${money(target)} target`
+            : `Tracking — now ${money(item.estimated_value_usd)}, alerts under ${money(target)}`}
+        </div>
+      )}
     </>
   );
 }
