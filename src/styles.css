@@ -400,6 +400,9 @@ textarea.input { resize: vertical; }
 .ready-line { font-size: 13px; }
 .ready-line.ok { color: var(--up); }
 .ready-line.bad { color: var(--danger); }
+.seller-help { display: flex; flex-direction: column; gap: 8px; }
+.seller-help p { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 0; }
+.seller-help .btn { align-self: flex-start; text-decoration: none; }
 
 /* gain / loss */
 .gain { font-size: 13px; font-weight: 600; letter-spacing: -.01em; margin-top: 3px; }

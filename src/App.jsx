@@ -1808,7 +1808,34 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
                   {ready.error ? (
                     <div className="ready-line bad">✕ {ready.error}</div>
                   ) : (
-                    [
+                    <>
+                      {ready.privileges &&
+                        (ready.privileges.error ? (
+                          <div className="ready-line bad">
+                            ✕ Seller account: {ready.privileges.error}
+                          </div>
+                        ) : ready.privileges.registered ? (
+                          <div className="ready-line ok">✓ Seller account registered</div>
+                        ) : (
+                          <div className="seller-help">
+                            <div className="ready-line bad">✕ You're not set up as an eBay seller yet.</div>
+                            <p>
+                              To sell, you need a seller account: on eBay go to{" "}
+                              <b>My eBay → Selling → Start selling</b>, verify your identity, and add a
+                              bank account for payouts plus a payment method for fees. Then come back
+                              and reconnect.
+                            </p>
+                            <a
+                              className="btn dark small"
+                              href="https://www.ebay.com/sl/sell"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Set up selling on eBay ↗
+                            </a>
+                          </div>
+                        ))}
+                      {[
                       ["payment", "Payment"],
                       ["fulfillment", "Shipping"],
                       ["return", "Returns"],
@@ -1827,7 +1854,8 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
                           {n ? grp.items.map((i) => i.name).join(", ") : "none — create one on eBay"}
                         </div>
                       );
-                    })
+                    })}
+                    </>
                   )}
                 </div>
               )}

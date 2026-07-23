@@ -6,7 +6,7 @@
 import { verifyFirebaseIdToken } from "../../lib/verifyFirebaseToken.js";
 import { getDocRest } from "../../lib/firestoreRest.js";
 import { refreshUserToken } from "../../lib/ebayAuth.js";
-import { getBusinessPolicies } from "../../lib/ebaySell.js";
+import { getBusinessPolicies, getSellerPrivileges } from "../../lib/ebaySell.js";
 
 const json = (o, status = 200) =>
   new Response(JSON.stringify(o), {
@@ -24,8 +24,11 @@ export default async (req) => {
     if (!tok.refresh_token) return json({ connected: false, error: "No eBay connection found." }, 200);
 
     const accessToken = await refreshUserToken(tok.refresh_token);
-    const policies = await getBusinessPolicies(accessToken);
-    return json({ connected: true, policies });
+    const [policies, privileges] = await Promise.all([
+      getBusinessPolicies(accessToken),
+      getSellerPrivileges(accessToken),
+    ]);
+    return json({ connected: true, policies, privileges });
   } catch (e) {
     return json({ error: e?.message || String(e) }, 400);
   }
