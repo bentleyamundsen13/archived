@@ -311,6 +311,37 @@ export async function deleteWishlistItem(uid, itemId) {
   await deleteDoc(doc(db, "users", uid, "wishlist", itemId));
 }
 
+/* ---------------- eBay account connection ---------------- */
+// The refresh token is stored server-side (never here); the client only reads
+// a small "connected" flag and kicks off the consent redirect.
+
+export async function startEbayConnect() {
+  if (!auth?.currentUser) throw new Error("Sign in first to connect eBay.");
+  const idToken = await auth.currentUser.getIdToken();
+  const r = await fetch("/api/ebay-connect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.url) throw new Error(data.error || "Couldn't start eBay connect.");
+  window.location.href = data.url; // hand off to eBay's consent screen
+}
+
+export async function getEbayStatus(uid) {
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    const d = snap.data() || {};
+    return { connected: !!d.ebayConnected, user: d.ebayUser || null };
+  } catch {
+    return { connected: false, user: null };
+  }
+}
+
+export async function disconnectEbay(uid) {
+  await setDoc(doc(db, "users", uid), { ebayConnected: false }, { merge: true });
+}
+
 /* ---------------- full-size item photos ---------------- */
 // Photos live one-per-doc under an item so we never hit Firestore's 1MB/doc
 // limit and don't need the paid Storage product. The item doc keeps a small

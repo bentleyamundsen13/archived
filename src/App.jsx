@@ -30,6 +30,9 @@ import {
   watchWishlist,
   updateWishlistItem,
   deleteWishlistItem,
+  startEbayConnect,
+  getEbayStatus,
+  disconnectEbay,
 } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -280,6 +283,20 @@ export default function App() {
     return watchWishlist(user.uid, setCloudWishlist);
   }, [user]);
 
+  // Return trip from eBay's consent screen (/?ebay=connected|declined|error).
+  useEffect(() => {
+    const status = new URLSearchParams(window.location.search).get("ebay");
+    if (!status) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    showToast(
+      status === "connected"
+        ? "eBay account connected!"
+        : status === "declined"
+        ? "eBay connection was cancelled."
+        : "Couldn't connect eBay — please try again."
+    );
+  }, []);
+
   // Invite links: archivedcollections.netlify.app/?join=CODE
   useEffect(() => {
     if (!user) return;
@@ -388,6 +405,7 @@ export default function App() {
             collections={collections.map(summarize)}
             theme={theme}
             setTheme={setTheme}
+            showToast={showToast}
             onSignOut={async () => {
               await logOut();
               setGuest(false);
@@ -1585,8 +1603,28 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 /*  You page + settings                                                */
 /* ------------------------------------------------------------------ */
 
-function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
+function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignOut }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [ebay, setEbay] = useState({ connected: false, user: null });
+  const [ebayBusy, setEbayBusy] = useState(false);
+
+  useEffect(() => {
+    if (user) getEbayStatus(user.uid).then(setEbay);
+  }, [user]);
+
+  async function connectEbay() {
+    setEbayBusy(true);
+    try {
+      await startEbayConnect(); // redirects away on success
+    } catch (e) {
+      showToast?.(e?.message || "Couldn't connect eBay.");
+      setEbayBusy(false);
+    }
+  }
+  async function unlinkEbay() {
+    await disconnectEbay(user.uid).catch(() => {});
+    setEbay({ connected: false, user: null });
+  }
 
   const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
   const totalItems = collections.reduce((s, c) => s + (c.itemCount || 0), 0);
@@ -1720,6 +1758,33 @@ function YouPage({ user, guest, collections, theme, setTheme, onSignOut }) {
           <div className="stat-label">Top item{top ? ` · ${money(top.value)}` : ""}</div>
         </div>
       </div>
+
+      {user && (
+        <div className="card ebay-card rise" style={{ animationDelay: "240ms" }}>
+          <div className="ebay-row">
+            <div className="grow">
+              <div className="ebay-title">
+                eBay account
+                {ebay.connected && <span className="ebay-dot" />}
+              </div>
+              <div className="card-sub">
+                {ebay.connected
+                  ? `Connected${ebay.user ? ` · ${ebay.user}` : ""} — you can list items to eBay`
+                  : "Connect to list your items straight to eBay"}
+              </div>
+            </div>
+            {ebay.connected ? (
+              <button className="btn light small" onClick={unlinkEbay}>
+                Disconnect
+              </button>
+            ) : (
+              <button className="btn dark small" disabled={ebayBusy} onClick={connectEbay}>
+                {ebayBusy ? <span className="spinner" /> : "Connect"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {showPie && (
         <div className="card pie-card rise" style={{ animationDelay: "220ms" }}>

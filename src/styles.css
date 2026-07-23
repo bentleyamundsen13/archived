@@ -389,6 +389,13 @@ textarea.input { resize: vertical; }
   margin: 14px 0 4px;
 }
 
+/* eBay account card */
+.ebay-card { margin-top: 14px; }
+.ebay-row { display: flex; align-items: center; gap: 12px; }
+.ebay-title { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 7px; }
+.ebay-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--up); display: inline-block; }
+.ebay-row .btn { flex-shrink: 0; }
+
 /* gain / loss */
 .gain { font-size: 13px; font-weight: 600; letter-spacing: -.01em; margin-top: 3px; }
 .gain.up { color: var(--up); }
