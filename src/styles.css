@@ -395,6 +395,11 @@ textarea.input { resize: vertical; }
 .ebay-title { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 7px; }
 .ebay-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--up); display: inline-block; }
 .ebay-row .btn { flex-shrink: 0; }
+.ebay-ready { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mist); }
+.ebay-ready-out { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+.ready-line { font-size: 13px; }
+.ready-line.ok { color: var(--up); }
+.ready-line.bad { color: var(--danger); }
 
 /* gain / loss */
 .gain { font-size: 13px; font-weight: 600; letter-spacing: -.01em; margin-top: 3px; }

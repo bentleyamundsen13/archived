@@ -341,6 +341,23 @@ export async function startEbayConnect() {
   window.location.href = data.url; // hand off to eBay's consent screen
 }
 
+export async function checkEbayReady() {
+  if (!auth?.currentUser) throw new Error("Sign in first.");
+  const idToken = await auth.currentUser.getIdToken();
+  const r = await fetch("/api/ebay-ready", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ idToken }),
+  });
+  const text = await r.text();
+  let data = {};
+  try {
+    data = JSON.parse(text);
+  } catch {}
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}: ${(text || "").slice(0, 160)}`);
+  return data;
+}
+
 export async function getEbayStatus(uid) {
   try {
     const snap = await getDoc(doc(db, "users", uid));

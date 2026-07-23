@@ -33,6 +33,7 @@ import {
   startEbayConnect,
   getEbayStatus,
   disconnectEbay,
+  checkEbayReady,
 } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -1624,6 +1625,19 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
   async function unlinkEbay() {
     await disconnectEbay(user.uid).catch(() => {});
     setEbay({ connected: false, user: null });
+    setReady(null);
+  }
+  const [ready, setReady] = useState(null);
+  const [readyBusy, setReadyBusy] = useState(false);
+  async function checkReady() {
+    setReadyBusy(true);
+    try {
+      setReady(await checkEbayReady());
+    } catch (e) {
+      showToast?.(e?.message || "Check failed.");
+    } finally {
+      setReadyBusy(false);
+    }
   }
 
   const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
@@ -1783,6 +1797,42 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
               </button>
             )}
           </div>
+
+          {ebay.connected && (
+            <div className="ebay-ready">
+              <button className="btn light small" disabled={readyBusy} onClick={checkReady}>
+                {readyBusy ? <span className="spinner" /> : "Check listing setup"}
+              </button>
+              {ready && (
+                <div className="ebay-ready-out">
+                  {ready.error ? (
+                    <div className="ready-line bad">✕ {ready.error}</div>
+                  ) : (
+                    [
+                      ["payment", "Payment"],
+                      ["fulfillment", "Shipping"],
+                      ["return", "Returns"],
+                    ].map(([k, label]) => {
+                      const grp = ready.policies?.[k];
+                      if (!grp || grp.error)
+                        return (
+                          <div key={k} className="ready-line bad">
+                            ✕ {label}: {grp?.error || "couldn't read"}
+                          </div>
+                        );
+                      const n = grp.items?.length || 0;
+                      return (
+                        <div key={k} className={"ready-line " + (n ? "ok" : "bad")}>
+                          {n ? "✓" : "✕"} {label}:{" "}
+                          {n ? grp.items.map((i) => i.name).join(", ") : "none — create one on eBay"}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
