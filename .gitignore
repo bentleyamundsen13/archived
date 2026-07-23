@@ -3,3 +3,9 @@ node_modules
 dist
 .netlify
 .claude/settings.local.json
+
+# Local backups / zips that must never be deployed
+netlify/functions/archived-pricing/
+netlify/functions/archived-pricing.zip
+netlify/functions/archived-redesign.zip
+*.zip
