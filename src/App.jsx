@@ -1614,10 +1614,8 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       )}
 
       {listingItem && (
-        <ListOnEbayModal
+        <SellOnEbayModal
           item={listingItem.item}
-          photoIds={listingItem.photoIds}
-          cid={col.id}
           onClose={() => setListingItem(null)}
           showToast={showToast}
         />
@@ -1627,7 +1625,88 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  List on eBay                                                        */
+/*  List on eBay — current flow: prefill eBay's own listing screen      */
+/*  (eBay can't accept photos via a link, so we prefill the title and   */
+/*  copy price+description for a one-tap paste; photos added on eBay).   */
+/* ------------------------------------------------------------------ */
+
+const ZIP_KEY = "archived_ship_zip";
+
+function SellOnEbayModal({ item, onClose, showToast }) {
+  const [title, setTitle] = useState(
+    [item.brand, item.item_name].filter(Boolean).join(" ").slice(0, 80)
+  );
+  const [price, setPrice] = useState(item.estimated_value_usd ? String(item.estimated_value_usd) : "");
+  const [description, setDescription] = useState(
+    [item.notable_details, item.condition ? `Condition: ${item.condition}` : ""]
+      .filter(Boolean)
+      .join("\n\n")
+  );
+
+  async function openEbay() {
+    const block =
+      `${title}\n\n` +
+      (price ? `Price: $${price}\n\n` : "") +
+      (description ? description + "\n" : "");
+    try {
+      await navigator.clipboard?.writeText(block.trim());
+      showToast?.("Title & details copied — paste them into eBay.");
+    } catch {
+      showToast?.("Opening eBay — copy your details from here if needed.");
+    }
+    openExternal(
+      "https://www.ebay.com/sl/prelist/suggest?keywords=" + encodeURIComponent(title)
+    );
+  }
+
+  return (
+    <div className="reveal-backdrop tappable" onClick={onClose}>
+      <div className="card reveal-card list-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="reveal-name">Sell on eBay</div>
+        <p className="sell-help">
+          We'll open eBay's listing page with your title, and copy the price &amp; description to
+          your clipboard to paste in. Add your photos on eBay from your phone.
+        </p>
+
+        <label className="label">Title</label>
+        <input
+          className="input"
+          maxLength={80}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <label className="label">Price (USD)</label>
+        <input
+          className="input"
+          inputMode="decimal"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+        <label className="label">Description</label>
+        <textarea
+          className="input"
+          rows="4"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+
+        <div className="row">
+          <button className="btn light" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn dark" onClick={openEbay}>
+            Copy &amp; open eBay ↗
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  List on eBay — PRESERVED direct-API listing flow (not wired up).    */
+/*  Publishes a full listing incl. photos via the Sell API. Kept for    */
+/*  when we enable selling straight from Archived. See /api/ebay-list.  */
 /* ------------------------------------------------------------------ */
 
 const EBAY_CONDITIONS = [
@@ -1638,8 +1717,6 @@ const EBAY_CONDITIONS = [
   ["USED_ACCEPTABLE", "Used — Acceptable"],
   ["FOR_PARTS_OR_NOT_WORKING", "For parts / not working"],
 ];
-
-const ZIP_KEY = "archived_ship_zip";
 
 function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
   const [title, setTitle] = useState(
