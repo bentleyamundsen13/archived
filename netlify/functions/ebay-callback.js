@@ -3,7 +3,7 @@
 // refresh token, store it server-side (only the Admin SDK can read it), flag
 // the user as connected, then bounce back into the app.
 
-import { adminDb } from "../../lib/firebaseAdmin.js";
+import { setDocRest } from "../../lib/firestoreRest.js";
 import { verifyState, exchangeCode, ebayUsername } from "../../lib/ebayAuth.js";
 
 export default async (req) => {
@@ -19,18 +19,14 @@ export default async (req) => {
   try {
     const tok = await exchangeCode(code);
     const username = await ebayUsername(tok.access_token);
-    const db = adminDb();
-    // Secret refresh token — lives where no client rule can read it.
-    await db.collection("ebayTokens").doc(uid).set({
+    // Secret refresh token — server-only collection no client rule exposes.
+    await setDocRest(`ebayTokens/${uid}`, {
       refresh_token: tok.refresh_token,
       refresh_token_expires: Date.now() + (tok.refresh_token_expires_in || 0) * 1000,
       updated: Date.now(),
     });
     // Public, client-readable flag so the UI can show "Connected".
-    await db
-      .collection("users")
-      .doc(uid)
-      .set({ ebayConnected: true, ebayUser: username || null }, { merge: true });
+    await setDocRest(`users/${uid}`, { ebayConnected: true, ebayUser: username || null });
     return back("connected");
   } catch {
     return back("error");
