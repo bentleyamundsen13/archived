@@ -311,6 +311,15 @@ export async function deleteWishlistItem(uid, itemId) {
   await deleteDoc(doc(db, "users", uid, "wishlist", itemId));
 }
 
+/* ---------------- public showcase ---------------- */
+
+export async function setCollectionPublic(cid, isPublic, ownerName) {
+  await updateDoc(doc(db, "collections", cid), {
+    public: !!isPublic,
+    ...(ownerName ? { showcaseOwner: ownerName } : {}),
+  });
+}
+
 /* ---------------- eBay account connection ---------------- */
 // The refresh token is stored server-side (never here); the client only reads
 // a small "connected" flag and kicks off the consent redirect.

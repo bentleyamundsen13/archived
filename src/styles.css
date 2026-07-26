@@ -424,6 +424,31 @@ textarea.input { resize: vertical; }
 .seller-help p { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 0; }
 .seller-help .btn { align-self: flex-start; text-decoration: none; }
 
+/* public showcase */
+.showcase { max-width: 760px; margin: 0 auto; padding: 28px 18px 60px; }
+.showcase-msg { gap: 16px; }
+.showcase-head { text-align: center; margin-bottom: 26px; }
+.showcase-title { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+.showcase-sub { font-size: 13px; color: var(--graphite); margin-top: 6px; }
+.showcase-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px;
+}
+.showcase-item { display: flex; flex-direction: column; }
+.showcase-item img, .showcase-ph {
+  width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px;
+  background: var(--mist); border: 1px solid var(--mist);
+}
+.showcase-ph {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34px; font-weight: 700; color: var(--graphite);
+}
+.showcase-name { font-size: 13.5px; font-weight: 600; margin-top: 8px; line-height: 1.3; }
+.showcase-meta { font-size: 12px; color: var(--graphite); margin-top: 2px; }
+.showcase-footer {
+  display: block; text-align: center; margin-top: 40px; font-size: 12px;
+  color: var(--graphite); text-decoration: none; letter-spacing: .02em;
+}
+
 /* collection value-over-time chart */
 .value-chart-card { margin-top: 14px; }
 .value-chart-label {

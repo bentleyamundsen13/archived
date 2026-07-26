@@ -36,6 +36,7 @@ import {
   checkEbayReady,
   listOnEbay,
   ebayListPrep,
+  setCollectionPublic,
 } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -385,6 +386,10 @@ export default function App() {
       return false;
     }
   }
+
+  // Public showcase link — a read-only gallery anyone can open, no sign-in.
+  const showcaseId = new URLSearchParams(window.location.search).get("showcase");
+  if (showcaseId) return <ShowcasePage id={showcaseId} />;
 
   if (!authChecked) return <div className="page center">Loading…</div>;
   if (!user && !guest) return <Landing onGuest={() => setGuest(true)} />;
@@ -833,6 +838,64 @@ function CollectionsHome({ collections, cloud, user, setGuestData, onJoin, onOpe
 }
 
 /* ------------------------------------------------------------------ */
+/*  Public showcase (read-only, no sign-in)                            */
+/* ------------------------------------------------------------------ */
+
+function ShowcasePage({ id }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/showcase?id=" + encodeURIComponent(id))
+      .then((r) => r.json())
+      .then((d) => (d.error ? setError(d.error) : setData(d)))
+      .catch(() => setError("Couldn't load this showcase."));
+  }, [id]);
+
+  if (error)
+    return (
+      <div className="page center showcase-msg">
+        <p>{error}</p>
+        <a className="btn dark" href="/">Open Archived</a>
+      </div>
+    );
+  if (!data) return <div className="page center">Loading…</div>;
+
+  return (
+    <div className="page showcase">
+      <header className="showcase-head">
+        <div className="showcase-title">{data.name}</div>
+        <div className="showcase-sub">
+          {data.itemCount} {data.itemCount === 1 ? "item" : "items"}
+          {data.type ? ` · ${data.type}` : ""}
+          {data.ownerName ? ` · ${data.ownerName}` : ""}
+        </div>
+      </header>
+      <div className="showcase-grid">
+        {data.items.map((it, i) => (
+          <div className="showcase-item" key={i}>
+            {it.image_url ? (
+              <img src={it.image_url} alt="" loading="lazy" />
+            ) : (
+              <div className="showcase-ph">{(it.item_name || "?")[0]?.toUpperCase()}</div>
+            )}
+            <div className="showcase-name">{it.item_name}</div>
+            {(it.brand || it.release_year) && (
+              <div className="showcase-meta">
+                {it.brand}
+                {it.brand && it.release_year ? " · " : ""}
+                {it.release_year || ""}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <a className="showcase-footer" href="/">Made with Archived</a>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Collection page                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -850,6 +913,8 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [reveal, setReveal] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pubCopied, setPubCopied] = useState(false);
+  const [pubBusy, setPubBusy] = useState(false);
   const [editingCol, setEditingCol] = useState(false);
   const [colName, setColName] = useState("");
   const [colType, setColType] = useState("");
@@ -1521,6 +1586,55 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 </div>
               ))}
             </div>
+            {isOwner && (
+              <>
+                <div className="settings-label">Public showcase</div>
+                <p className="share-blurb">
+                  A read-only page anyone can open with the link — your items and photos,
+                  no prices and no sign-in needed.
+                </p>
+                {col.public ? (
+                  <>
+                    <button
+                      className="btn dark"
+                      onClick={() => {
+                        const url = `${window.location.origin}/?showcase=${col.id}`;
+                        navigator.clipboard?.writeText(url).then(() => {
+                          setPubCopied(true);
+                          setTimeout(() => setPubCopied(false), 1500);
+                        });
+                      }}
+                    >
+                      {pubCopied ? "Showcase link copied ✓" : "Copy showcase link"}
+                    </button>
+                    <button
+                      className="btn light"
+                      disabled={pubBusy}
+                      onClick={async () => {
+                        setPubBusy(true);
+                        await setCollectionPublic(col.id, false).catch(() => {});
+                        setPubBusy(false);
+                      }}
+                    >
+                      Make private
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="btn light"
+                    disabled={pubBusy}
+                    onClick={async () => {
+                      setPubBusy(true);
+                      await setCollectionPublic(col.id, true, user?.displayName || null).catch(() => {});
+                      setPubBusy(false);
+                    }}
+                  >
+                    {pubBusy ? <span className="spinner" /> : "Make public"}
+                  </button>
+                )}
+              </>
+            )}
+
             <button className="btn light" onClick={() => setSharing(false)}>
               Done
             </button>
