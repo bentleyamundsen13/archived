@@ -164,6 +164,40 @@ function summarize(c) {
   return c.items ? { ...c, ...computeAggregates(c.items) } : c;
 }
 
+// Total collection value over time, as a {t, v} series for PriceGraph. For each
+// point in time we sum every owned item's value as of then (its most recent
+// price point at/before that time), so the line grows as items are added and
+// tracks their value changes. Returns [] until there's enough to plot.
+function collectionValueSeries(items) {
+  const now = Date.now();
+  const perItem = (items || [])
+    .filter((it) => !it.wanted)
+    .map((it) => {
+      const cur = Number(it.estimated_value_usd) || 0;
+      const h = (it.priceHistory || [])
+        .filter((p) => p && typeof p.v === "number" && p.t)
+        .sort((a, b) => a.t - b.t);
+      if (h.length === 0) return [{ t: it.created || now, v: cur }];
+      // Ensure the series reflects today's value even if not refreshed recently.
+      if (h[h.length - 1].t < now - 864e5) h.push({ t: now, v: cur });
+      return h;
+    });
+  const times = [...new Set(perItem.flat().map((p) => p.t))].sort((a, b) => a - b);
+  if (times.length < 2) return [];
+  return times.map((T) => {
+    let total = 0;
+    for (const h of perItem) {
+      let v = null;
+      for (const p of h) {
+        if (p.t <= T) v = p.v;
+        else break;
+      }
+      if (v !== null) total += v;
+    }
+    return { t: T, v: Math.round(total) };
+  });
+}
+
 // Look up the current market price for an item. Returns { value, image, label }
 // or null. Used both when adding an item and for the weekly price refresh.
 async function priceLookup(brand, itemName, type) {
@@ -840,6 +874,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const withCost = items.filter((i) => Number(i.purchase_price_usd) > 0);
   const costBasis = withCost.reduce((s, i) => s + Number(i.purchase_price_usd), 0);
   const costValue = withCost.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
+  const valueSeries = collectionValueSeries(items);
 
   // Search + sort. "recent" keeps the natural newest-first order; the search
   // bar only appears once a collection is big enough to need it.
@@ -1109,6 +1144,15 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       persistPriceFields(it.id, { priceLastChecked: now });
       return;
     }
+    // Guard against bad marketplace matches (a loose name search catching a
+    // pricier/cheaper variant) ratcheting the value. Skip refreshes that jump
+    // more than 2.5x up or below 0.4x down; still stamp the check so we don't
+    // retry immediately. A manual edit resets the baseline.
+    const current = Number(it.estimated_value_usd) || 0;
+    if (current > 0 && (res.value > current * 2.5 || res.value < current * 0.4)) {
+      persistPriceFields(it.id, { priceLastChecked: now });
+      return;
+    }
     const history = [...(it.priceHistory || []), { t: now, v: res.value }].slice(-260);
     persistPriceFields(it.id, {
       estimated_value_usd: res.value,
@@ -1352,6 +1396,13 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       />
 
       {error && <div className="error pop">{error}</div>}
+
+      {itemsReady && valueSeries.length >= 2 && (
+        <div className="card value-chart-card">
+          <div className="value-chart-label">Collection value over time</div>
+          <PriceGraph history={valueSeries} />
+        </div>
+      )}
 
       {itemsReady && showFilterBar && (
         <div className="filter-bar">

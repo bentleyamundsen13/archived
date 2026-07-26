@@ -424,6 +424,13 @@ textarea.input { resize: vertical; }
 .seller-help p { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 0; }
 .seller-help .btn { align-self: flex-start; text-decoration: none; }
 
+/* collection value-over-time chart */
+.value-chart-card { margin-top: 14px; }
+.value-chart-label {
+  font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--graphite); margin-bottom: 8px;
+}
+
 /* gain / loss */
 .gain { font-size: 13px; font-weight: 600; letter-spacing: -.01em; margin-top: 3px; }
 .gain.up { color: var(--up); }
