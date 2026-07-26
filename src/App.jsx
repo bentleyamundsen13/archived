@@ -807,7 +807,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
-  const [listingItem, setListingItem] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [detailClosing, setDetailClosing] = useState(false);
   const [detailPhotos, setDetailPhotos] = useState([]);
@@ -1573,21 +1572,20 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
               </a>
             )}
             <PriceGraph history={detailHistory} />
-            {cloud && (
-              <button
-                className="btn dark list-ebay-btn"
-                onClick={() => {
-                  const item = detailItem;
-                  const photoIds = detailPhotos
-                    .filter((p) => p.id && p.id !== "thumb")
-                    .map((p) => p.id);
-                  closeDetailNow();
-                  setListingItem({ item, photoIds });
-                }}
-              >
-                List on eBay
-              </button>
-            )}
+            <button
+              className="btn dark list-ebay-btn"
+              onClick={() => {
+                const kw = [detailItem.brand, detailItem.item_name]
+                  .filter(Boolean)
+                  .join(" ");
+                closeDetailNow();
+                openExternal(
+                  "https://www.ebay.com/sl/prelist/suggest?keywords=" + encodeURIComponent(kw)
+                );
+              }}
+            >
+              Sell on eBay ↗
+            </button>
             <div className="row detail-actions">
               <button
                 className="btn light"
@@ -1612,16 +1610,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             </div>
           </div>
         </div>
-      )}
-
-      {listingItem && (
-        <ListOnEbayModal
-          item={listingItem.item}
-          photoIds={listingItem.photoIds}
-          cid={col.id}
-          onClose={() => setListingItem(null)}
-          showToast={showToast}
-        />
       )}
     </>
   );
