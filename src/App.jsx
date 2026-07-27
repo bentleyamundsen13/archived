@@ -65,6 +65,26 @@ function openExternal(url) {
   if (!w) window.location.href = url;
 }
 
+// eBay Partner Network: tag eBay links with the campaign id so purchases made
+// through the app earn commission. Only touches ebay.com URLs; anything else
+// passes through untouched.
+const EPN_CAMPID = "5339175574";
+function ebayAffiliate(url) {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.endsWith("ebay.com")) return url;
+    u.searchParams.set("mkcid", "1");
+    u.searchParams.set("mkrid", "711-53200-19255-0"); // eBay US rotation
+    u.searchParams.set("siteid", "0");
+    u.searchParams.set("campid", EPN_CAMPID);
+    u.searchParams.set("toolid", "10001");
+    u.searchParams.set("mkevt", "1");
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 // A wishlist item is "on alert" when its tracked price has reached the target.
 const belowTarget = (w) =>
   Number(w.target_price_usd) > 0 &&
@@ -1743,7 +1763,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             {detailItem.listing_url && (
               <a
                 className="btn light listing-link"
-                href={detailItem.listing_url}
+                href={ebayAffiliate(detailItem.listing_url)}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -2984,7 +3004,7 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
   const condition = detail?.condition || item.condition || null;
   const isAuction = detail ? detail.isAuction : item.isAuction;
   const bidCount = detail?.bidCount;
-  const url = detail?.url || item.listing_url;
+  const url = ebayAffiliate(detail?.url || item.listing_url);
 
   return (
     <>
