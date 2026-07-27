@@ -427,7 +427,7 @@ textarea.input { resize: vertical; }
 /* offline indicator */
 .offline-banner {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(var(--tabbar-h, 64px) + 12px); z-index: 60;
+  bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 60;
   background: var(--ink); color: var(--paper);
   font-size: 12.5px; font-weight: 500; padding: 9px 15px; border-radius: 999px;
   box-shadow: 0 6px 20px var(--shadow); max-width: 92%; text-align: center;
