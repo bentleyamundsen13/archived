@@ -32,6 +32,8 @@ import {
 } from "firebase/auth";
 import {
   initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   getDoc,
   getDocs,
@@ -73,7 +75,13 @@ if (firebaseReady) {
   // often broken by mobile Safari and some mobile networks/proxies, which
   // hangs every read at "Loading…". This falls back to long-polling there
   // while keeping fast streaming where it works (desktop).
-  db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  // Offline support: cache Firestore data in IndexedDB so signed-in users can
+  // read their collections and queue writes without a connection (syncs when
+  // back online). Multi-tab keeps several open tabs consistent.
+  db = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
 }
 
 /* ---------------- auth ---------------- */

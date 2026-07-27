@@ -30,10 +30,6 @@ import {
   watchWishlist,
   updateWishlistItem,
   deleteWishlistItem,
-  startEbayConnect,
-  getEbayStatus,
-  disconnectEbay,
-  checkEbayReady,
   listOnEbay,
   ebayListPrep,
   setCollectionPublic,
@@ -237,7 +233,20 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [showTutorial, setShowTutorial] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "system");
+  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const toastTimer = useRef(null);
+
+  // Track connectivity for the offline indicator.
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
 
   // Apply theme
   useEffect(() => {
@@ -493,6 +502,11 @@ export default function App() {
         </button>
       </nav>
 
+      {!online && (
+        <div className="offline-banner">
+          Offline — your changes save and sync when you're back
+        </div>
+      )}
       {toast && <div className="toast">{toast}</div>}
       {showTutorial && <AddToHomeScreen onClose={dismissTutorial} />}
     </div>
@@ -2099,39 +2113,6 @@ function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
 
 function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignOut }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [ebay, setEbay] = useState({ connected: false, user: null });
-  const [ebayBusy, setEbayBusy] = useState(false);
-
-  useEffect(() => {
-    if (user) getEbayStatus(user.uid).then(setEbay);
-  }, [user]);
-
-  async function connectEbay() {
-    setEbayBusy(true);
-    try {
-      await startEbayConnect(); // redirects away on success
-    } catch (e) {
-      showToast?.(e?.message || "Couldn't connect eBay.");
-      setEbayBusy(false);
-    }
-  }
-  async function unlinkEbay() {
-    await disconnectEbay(user.uid).catch(() => {});
-    setEbay({ connected: false, user: null });
-    setReady(null);
-  }
-  const [ready, setReady] = useState(null);
-  const [readyBusy, setReadyBusy] = useState(false);
-  async function checkReady() {
-    setReadyBusy(true);
-    try {
-      setReady(await checkEbayReady());
-    } catch (e) {
-      showToast?.(e?.message || "Check failed.");
-    } finally {
-      setReadyBusy(false);
-    }
-  }
 
   const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
   const totalItems = collections.reduce((s, c) => s + (c.itemCount || 0), 0);
@@ -2265,97 +2246,6 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
           <div className="stat-label">Top item{top ? ` · ${money(top.value)}` : ""}</div>
         </div>
       </div>
-
-      {user && (
-        <div className="card ebay-card rise" style={{ animationDelay: "240ms" }}>
-          <div className="ebay-row">
-            <div className="grow">
-              <div className="ebay-title">
-                eBay account
-                {ebay.connected && <span className="ebay-dot" />}
-              </div>
-              <div className="card-sub">
-                {ebay.connected
-                  ? `Connected${ebay.user ? ` · ${ebay.user}` : ""} — you can list items to eBay`
-                  : "Connect to list your items straight to eBay"}
-              </div>
-            </div>
-            {ebay.connected ? (
-              <button className="btn light small" onClick={unlinkEbay}>
-                Disconnect
-              </button>
-            ) : (
-              <button className="btn dark small" disabled={ebayBusy} onClick={connectEbay}>
-                {ebayBusy ? <span className="spinner" /> : "Connect"}
-              </button>
-            )}
-          </div>
-
-          {ebay.connected && (
-            <div className="ebay-ready">
-              <button className="btn light small" disabled={readyBusy} onClick={checkReady}>
-                {readyBusy ? <span className="spinner" /> : "Check listing setup"}
-              </button>
-              {ready && (
-                <div className="ebay-ready-out">
-                  {ready.error ? (
-                    <div className="ready-line bad">✕ {ready.error}</div>
-                  ) : (
-                    <>
-                      {ready.privileges &&
-                        (ready.privileges.error ? (
-                          <div className="ready-line bad">
-                            ✕ Seller account: {ready.privileges.error}
-                          </div>
-                        ) : ready.privileges.registered ? (
-                          <div className="ready-line ok">✓ Seller account registered</div>
-                        ) : (
-                          <div className="seller-help">
-                            <div className="ready-line bad">✕ You're not set up as an eBay seller yet.</div>
-                            <p>
-                              To sell, you need a seller account: on eBay go to{" "}
-                              <b>My eBay → Selling → Start selling</b>, verify your identity, and add a
-                              bank account for payouts plus a payment method for fees. Then come back
-                              and reconnect.
-                            </p>
-                            <a
-                              className="btn dark small"
-                              href="https://www.ebay.com/sl/sell"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              Set up selling on eBay ↗
-                            </a>
-                          </div>
-                        ))}
-                      {[
-                      ["payment", "Payment"],
-                      ["fulfillment", "Shipping"],
-                      ["return", "Returns"],
-                    ].map(([k, label]) => {
-                      const grp = ready.policies?.[k];
-                      if (!grp || grp.error)
-                        return (
-                          <div key={k} className="ready-line bad">
-                            ✕ {label}: {grp?.error || "couldn't read"}
-                          </div>
-                        );
-                      const n = grp.items?.length || 0;
-                      return (
-                        <div key={k} className={"ready-line " + (n ? "ok" : "bad")}>
-                          {n ? "✓" : "✕"} {label}:{" "}
-                          {n ? grp.items.map((i) => i.name).join(", ") : "none — create one on eBay"}
-                        </div>
-                      );
-                    })}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {showPie && (
         <div className="card pie-card rise" style={{ animationDelay: "220ms" }}>
