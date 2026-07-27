@@ -424,6 +424,9 @@ textarea.input { resize: vertical; }
 .seller-help p { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 0; }
 .seller-help .btn { align-self: flex-start; text-decoration: none; }
 
+/* feedback button */
+.feedback-btn { display: block; width: 100%; margin-top: 22px; }
+
 /* offline indicator */
 .offline-banner {
   position: fixed; left: 50%; transform: translateX(-50%);

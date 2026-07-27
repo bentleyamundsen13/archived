@@ -33,6 +33,7 @@ import {
   listOnEbay,
   ebayListPrep,
   setCollectionPublic,
+  track,
 } from "./firebase.js";
 
 /* ------------------------------------------------------------------ */
@@ -1071,6 +1072,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
         item.photos = [{ id: photoId, data: fullImage, created: Date.now() }];
         patchGuest((c) => ({ ...c, items: [item, ...c.items] }));
       }
+      track("add_item");
       showReveal({ ...item, image_url: fullImage });
     } catch (e) {
       setError(e.message || "Something went wrong — try another photo.");
@@ -1777,6 +1779,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 const kw = [detailItem.brand, detailItem.item_name]
                   .filter(Boolean)
                   .join(" ");
+                track("sell_on_ebay");
                 closeDetailNow();
                 openExternal(
                   "https://www.ebay.com/sl/prelist/suggest?keywords=" + encodeURIComponent(kw)
@@ -2128,11 +2131,71 @@ function ListOnEbayModal({ item, photoIds, cid, onClose, showToast }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Feedback                                                           */
+/* ------------------------------------------------------------------ */
+
+function FeedbackModal({ user, onClose, showToast }) {
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!msg.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: msg,
+          email: user?.email || null,
+          page: window.location.pathname,
+        }),
+      });
+      if (!r.ok) throw new Error();
+      track("feedback_sent");
+      showToast?.("Thanks — feedback sent!");
+      onClose();
+    } catch {
+      showToast?.("Couldn't send — check your connection.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="reveal-backdrop tappable" onClick={onClose}>
+      <div className="card reveal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="reveal-name">Send feedback</div>
+        <p className="sell-help">
+          Found a bug or have an idea? Tell me — it goes straight to the developer.
+        </p>
+        <textarea
+          className="input"
+          rows="5"
+          autoFocus
+          placeholder="What's working, what's broken, what you'd want next…"
+          value={msg}
+          onChange={(e) => setMsg(e.target.value)}
+        />
+        <div className="row">
+          <button className="btn light" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn dark" disabled={busy || !msg.trim()} onClick={submit}>
+            {busy ? <span className="spinner" /> : "Send"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  You page + settings                                                */
 /* ------------------------------------------------------------------ */
 
 function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignOut }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
   const totalItems = collections.reduce((s, c) => s + (c.itemCount || 0), 0);
@@ -2272,6 +2335,18 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
           <div className="pie-card-label">Value by type</div>
           <ValuePieChart slices={typeSlices} total={totalValue} />
         </div>
+      )}
+
+      <button className="btn light feedback-btn" onClick={() => setShowFeedback(true)}>
+        💬 Send feedback
+      </button>
+
+      {showFeedback && (
+        <FeedbackModal
+          user={user}
+          showToast={showToast}
+          onClose={() => setShowFeedback(false)}
+        />
       )}
     </>
   );
@@ -2644,6 +2719,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
       const data = r.ok ? await r.json() : { results: [] };
       setResults(data.results || []);
       pushRecentSearch(term);
+      track("wishlist_search");
     } catch {
       setResults([]);
     } finally {

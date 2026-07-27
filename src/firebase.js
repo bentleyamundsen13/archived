@@ -50,6 +50,7 @@ import {
   arrayUnion,
   arrayRemove,
 } from "firebase/firestore";
+import { getAnalytics, logEvent, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD9xPySJe-fLNfgIkAr23PlqtN_GEbUKPs",
@@ -65,11 +66,13 @@ const firebaseConfig = {
 // guest mode only (localStorage) and explains how to enable accounts.
 export const firebaseReady = !firebaseConfig.apiKey.startsWith("PASTE");
 
+let app = null;
 let auth = null;
 let db = null;
+let analytics = null;
 
 if (firebaseReady) {
-  const app = initializeApp(firebaseConfig);
+  app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   // Auto-detect long-polling: Firestore's default WebChannel streaming is
   // often broken by mobile Safari and some mobile networks/proxies, which
@@ -82,6 +85,21 @@ if (firebaseReady) {
     experimentalAutoDetectLongPolling: true,
     localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
   });
+  // Analytics — usage & retention insight for the beta. Auto-tracks sessions/
+  // retention; track() below adds a few key feature events. Guarded by
+  // isSupported so it never breaks unsupported browsers/PWAs.
+  isSupported()
+    .then((ok) => {
+      if (ok) analytics = getAnalytics(app);
+    })
+    .catch(() => {});
+}
+
+// Log a custom analytics event (no-op if analytics isn't available).
+export function track(event, params) {
+  try {
+    if (analytics) logEvent(analytics, event, params || {});
+  } catch {}
 }
 
 /* ---------------- auth ---------------- */
