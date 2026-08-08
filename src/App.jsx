@@ -738,6 +738,9 @@ function CollectionsHome({ collections, cloud, user, setGuestData, onJoin, onOpe
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
+  const totalItems = collections.reduce((s, c) => s + (c.itemCount || 0), 0);
+
   async function join() {
     setBusy(true);
     try {
@@ -784,6 +787,17 @@ function CollectionsHome({ collections, cloud, user, setGuestData, onJoin, onOpe
           + Create
         </button>
       </header>
+
+      {collections.length > 0 && (
+        <div className="portfolio-hero rise">
+          <div className="portfolio-label">Total value</div>
+          <div className="portfolio-value">{money(totalValue)}</div>
+          <div className="portfolio-sub">
+            {totalItems} {totalItems === 1 ? "item" : "items"} · {collections.length}{" "}
+            {collections.length === 1 ? "collection" : "collections"}
+          </div>
+        </div>
+      )}
 
       {creating && (
         <div className="card form pop">
@@ -834,8 +848,16 @@ function CollectionsHome({ collections, cloud, user, setGuestData, onJoin, onOpe
       )}
 
       {collections.length === 0 && !creating && (
-        <div className="empty">
-          <p>No collections yet.</p>
+        <div className="empty big-empty">
+          <div className="empty-emoji">📦</div>
+          <p className="empty-title">Start your first collection</p>
+          <p className="empty-sub">
+            Snap a photo of anything you collect — Archived identifies it, values it, and files it
+            away.
+          </p>
+          <button className="btn dark" onClick={() => setCreating(true)}>
+            + Create a collection
+          </button>
         </div>
       )}
 
@@ -1083,12 +1105,19 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
   async function saveEdit(itemId, fields) {
     setEditingId(null);
+    const prev = items.find((i) => i.id === itemId);
+    const patch = { ...fields, edited: true };
+    // If the value was changed by hand, lock it so the weekly market refresh
+    // won't overwrite it — it stays put until the user edits it again.
+    if (prev && Number(fields.estimated_value_usd) !== Number(prev.estimated_value_usd)) {
+      patch.value_source = "manual";
+    }
     if (cloud) {
       try {
-        await updateItemDoc(col.id, itemId, { ...fields, edited: true });
+        await updateItemDoc(col.id, itemId, patch);
         await setAggregates(
           col.id,
-          items.map((i) => (i.id === itemId ? { ...i, ...fields } : i))
+          items.map((i) => (i.id === itemId ? { ...i, ...patch } : i))
         );
       } catch {
         showToast("Couldn't save that change — check your connection.");
@@ -1096,7 +1125,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     } else {
       patchGuest((c) => ({
         ...c,
-        items: c.items.map((i) => (i.id === itemId ? { ...i, ...fields, edited: true } : i)),
+        items: c.items.map((i) => (i.id === itemId ? { ...i, ...patch } : i)),
       }));
     }
   }
@@ -1177,8 +1206,12 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     setDetailId(it.id);
     setDetailClosing(false);
     setDetailHistory(it.priceHistory || []);
-    // Once a week, refresh the market value and add a point to the graph.
-    if (Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS) {
+    // Once a week, refresh the market value and add a point to the graph —
+    // unless the user has set the value by hand (then it's locked).
+    if (
+      it.value_source !== "manual" &&
+      Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS
+    ) {
       refreshItemPrice(it);
     }
     // Start with the thumbnail so something shows instantly, then swap in
@@ -1779,14 +1812,16 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 const kw = [detailItem.brand, detailItem.item_name]
                   .filter(Boolean)
                   .join(" ");
-                track("sell_on_ebay");
+                track("view_on_ebay");
                 closeDetailNow();
                 openExternal(
-                  "https://www.ebay.com/sl/prelist/suggest?keywords=" + encodeURIComponent(kw)
+                  ebayAffiliate(
+                    "https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(kw)
+                  )
                 );
               }}
             >
-              Sell on eBay ↗
+              View on eBay ↗
             </button>
             <div className="row detail-actions">
               <button

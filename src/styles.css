@@ -424,6 +424,27 @@ textarea.input { resize: vertical; }
 .seller-help p { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 0; }
 .seller-help .btn { align-self: flex-start; text-decoration: none; }
 
+/* portfolio hero (collections home) */
+.portfolio-hero { padding: 16px 4px 20px; }
+.portfolio-label {
+  font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--graphite);
+}
+.portfolio-value {
+  font-size: 40px; font-weight: 800; letter-spacing: -.025em; line-height: 1.04;
+  margin-top: 4px; color: var(--ink);
+}
+.portfolio-sub { font-size: 13px; color: var(--graphite); margin-top: 6px; }
+
+/* richer empty states */
+.big-empty {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 6px; padding: 48px 24px;
+}
+.empty-emoji { font-size: 44px; margin-bottom: 6px; }
+.empty-title { font-size: 18px; font-weight: 700; color: var(--ink); margin: 0; }
+.empty-sub { font-size: 14px; color: var(--graphite); line-height: 1.5; max-width: 34ch; margin: 0 0 8px; }
+
 /* feedback button */
 .feedback-btn { display: block; width: 100%; margin-top: 22px; }
 
