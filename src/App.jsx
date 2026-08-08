@@ -58,12 +58,20 @@ const money = (n) =>
     maximumFractionDigits: 0,
   });
 
-// Open an external link reliably, including from an installed (standalone) PWA
-// where a plain target="_blank" anchor is often swallowed.
+// Open an external link in a NEW tab, keeping the app's tab open. Uses a
+// real anchor click, which is the reliable cross-platform way (desktop, mobile
+// browser, and installed PWA) — window.open with "noopener" returns null even
+// on success, which previously tripped a fallback that replaced the app's tab.
 function openExternal(url) {
   if (!url) return;
-  const w = window.open(url, "_blank", "noopener,noreferrer");
-  if (!w) window.location.href = url;
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 // eBay Partner Network: tag eBay links with the campaign id so purchases made
@@ -3076,7 +3084,10 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
                         <span className="wl-tag hit">▼ Target hit · {money(it.target_price_usd)}</span>
                       )}
                     </div>
-                    <div className="card-value">{money(it.estimated_value_usd)}</div>
+                    <div className="item-value-col">
+                      <div className="card-value">{money(it.estimated_value_usd)}</div>
+                      <WeeklyChange history={it.priceHistory} />
+                    </div>
                   </div>
                 </article>
               );
