@@ -113,6 +113,35 @@ function GainLine({ paid, value, label, big }) {
   );
 }
 
+// Percent change in an item's value over the last week, from its price history.
+// Returns null when there isn't enough data to compare.
+function weeklyChange(history) {
+  const h = (history || [])
+    .filter((p) => p && typeof p.v === "number" && p.t)
+    .sort((a, b) => a.t - b.t);
+  if (h.length < 2) return null;
+  const weekAgo = Date.now() - 7 * 864e5;
+  let ref = null;
+  for (const p of h) if (p.t <= weekAgo) ref = p; // latest point ≥1 week old
+  if (!ref) ref = h[0]; // item younger than a week: compare to its first point
+  const cur = h[h.length - 1].v;
+  if (!ref.v) return null;
+  return ((cur - ref.v) / ref.v) * 100;
+}
+
+// Small colored ▲/▼/– weekly-change badge for item cards.
+function WeeklyChange({ history }) {
+  const pct = weeklyChange(history);
+  if (pct === null) return null;
+  const dir = pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
+  const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "–";
+  return (
+    <div className={"wk-change " + dir}>
+      {arrow} {Math.abs(pct).toFixed(1)}%
+    </div>
+  );
+}
+
 // Recent wishlist searches — the browsing signal behind "Recommended for you".
 const WL_RECENT_KEY = "wl_recent";
 function getRecentSearches() {
@@ -1601,7 +1630,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                       {it.release_year ? ` · ${it.release_year}` : ""}
                     </div>
                   </div>
-                  <div className="card-value">{money(it.estimated_value_usd)}</div>
+                  <div className="item-value-col">
+                    <div className="card-value">{money(it.estimated_value_usd)}</div>
+                    <WeeklyChange history={it.priceHistory} />
+                  </div>
                 </div>
               </article>
             )
