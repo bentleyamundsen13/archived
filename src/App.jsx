@@ -1017,6 +1017,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [sortBy, setSortBy] = useState("recent");
   const revealTimers = useRef([]);
   const detailIdRef = useRef(null);
+  const bgRefreshed = useRef(false);
 
   useEffect(() => {
     if (!cloud) return;
@@ -1027,6 +1028,32 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
   const items = cloud ? cloudItems || [] : col.items;
   const itemsReady = !cloud || cloudItems !== null;
+
+  // Auto-refresh stale item prices in the background (once per open), so value
+  // history and the weekly-change badge build up without opening each item.
+  // Manually-priced items are left alone. Throttled to be gentle on the API.
+  useEffect(() => {
+    if (!itemsReady || bgRefreshed.current) return;
+    const stale = items.filter(
+      (it) =>
+        it.value_source !== "manual" &&
+        Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS
+    );
+    if (stale.length === 0) return;
+    bgRefreshed.current = true;
+    let dead = false;
+    (async () => {
+      for (const it of stale) {
+        if (dead) return;
+        await refreshItemPrice(it);
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsReady]);
   const detailItem = detailId ? items.find((i) => i.id === detailId) : null;
   const isOwner = !cloud || col.owner === user?.uid;
   const total = items.reduce((s, i) => s + (Number(i.estimated_value_usd) || 0), 0);
@@ -1819,6 +1846,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             </div>
             <div className="reveal-row">
               <span className="reveal-value">{money(detailItem.estimated_value_usd)}</span>
+              <WeeklyChange history={detailHistory} />
               {detailItem.market_label && (
                 <span className="card-sub">{detailItem.market_label}</span>
               )}
