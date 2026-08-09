@@ -1034,11 +1034,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   // Manually-priced items are left alone. Throttled to be gentle on the API.
   useEffect(() => {
     if (!itemsReady || bgRefreshed.current) return;
-    const stale = items.filter(
-      (it) =>
-        it.value_source !== "manual" &&
-        Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS
-    );
+    const stale = items.filter(itemNeedsRefresh);
     if (stale.length === 0) return;
     bgRefreshed.current = true;
     let dead = false;
@@ -1270,12 +1266,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     setDetailId(it.id);
     setDetailClosing(false);
     setDetailHistory(it.priceHistory || []);
-    // Once a week, refresh the market value and add a point to the graph —
-    // unless the user has set the value by hand (then it's locked).
-    if (
-      it.value_source !== "manual" &&
-      Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS
-    ) {
+    // Refresh the market value and add a point to the graph when due (skips
+    // manually-priced items — those stay locked).
+    if (itemNeedsRefresh(it)) {
       refreshItemPrice(it);
     }
     // Start with the thumbnail so something shows instantly, then swap in
@@ -1335,19 +1328,32 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   // Weekly market-value refresh: append a point to the item's price history
   // and update its current value. Stamps the check time either way so a
   // failed lookup doesn't re-hit eBay on every open.
+  // Whether an item is due for a market refresh. Items still building their
+  // first graph (<2 points) refresh every few hours so the graph appears soon;
+  // established items refresh weekly. Manually-priced values are never touched.
+  function itemNeedsRefresh(it) {
+    if (it.value_source === "manual") return false;
+    const age = Date.now() - (it.priceLastChecked || 0);
+    const building = (it.priceHistory?.length || 0) < 2;
+    return age > (building ? 4 * 60 * 60 * 1000 : PRICE_REFRESH_MS);
+  }
+
   async function refreshItemPrice(it) {
     const now = Date.now();
     const res = await priceLookup(it.brand, it.item_name, col.type);
-    if (!res) {
-      persistPriceFields(it.id, { priceLastChecked: now });
-      return;
-    }
-    // Guard against bad marketplace matches (a loose name search catching a
-    // pricier/cheaper variant) ratcheting the value. Skip refreshes that jump
-    // more than 2.5x up or below 0.4x down; still stamp the check so we don't
-    // retry immediately. A manual edit resets the baseline.
+    // Couldn't price it (no match / API hiccup): leave it "due" so it retries
+    // next time instead of getting stuck with no graph.
+    if (!res) return;
+    // Guard items that ALREADY have a price trend against a bad marketplace
+    // match spiking the value (>2.5x up / <0.4x down). New items still building
+    // their graph always accept, so the graph can actually start.
     const current = Number(it.estimated_value_usd) || 0;
-    if (current > 0 && (res.value > current * 2.5 || res.value < current * 0.4)) {
+    const established = (it.priceHistory?.length || 0) >= 2;
+    if (
+      established &&
+      current > 0 &&
+      (res.value > current * 2.5 || res.value < current * 0.4)
+    ) {
       persistPriceFields(it.id, { priceLastChecked: now });
       return;
     }
