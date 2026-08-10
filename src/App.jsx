@@ -2533,7 +2533,7 @@ function ValuePieChart({ slices, total }) {
 
 function PriceGraph({ history }) {
   const [range, setRange] = useState("ALL");
-  const [scrub, setScrub] = useState(null); // index into draw[] while dragging
+  const [scrubT, setScrubT] = useState(null); // continuous timestamp while dragging
   const svgRef = useRef(null);
 
   const RANGES = [
@@ -2546,7 +2546,7 @@ function PriceGraph({ history }) {
   if (!history || history.length < 2) {
     return (
       <div className="graph-empty">
-        📈 Price history builds over time — a new point is added each week as
+        📈 Price history builds over time — a new point is added each day as
         the value updates.
       </div>
     );
@@ -2558,26 +2558,32 @@ function PriceGraph({ history }) {
     .filter((p) => p && typeof p.v === "number")
     .filter((p) => span === Infinity || now - p.t <= span)
     .sort((a, b) => a.t - b.t);
-  // Fall back to the full series if the chosen window has too few points yet.
   const draw = inRange.length >= 2 ? inRange : [...history].sort((a, b) => a.t - b.t);
 
   const W = 300, H = 116, padX = 5, padTop = 10, padBot = 16;
-  const ts = draw.map((p) => p.t);
+  const minT = draw[0].t, maxT = draw[draw.length - 1].t;
   const vs = draw.map((p) => p.v);
-  const minT = Math.min(...ts), maxT = Math.max(...ts);
   let minV = Math.min(...vs), maxV = Math.max(...vs);
   if (minV === maxV) { minV -= 1; maxV += 1; }
   const X = (t) => padX + (maxT === minT ? 0.5 : (t - minT) / (maxT - minT)) * (W - padX * 2);
   const Y = (v) => padTop + (1 - (v - minV) / (maxV - minV)) * (H - padTop - padBot);
 
+  // Linearly interpolate value at any timestamp between data points.
+  function interpV(t) {
+    if (t <= draw[0].t) return draw[0].v;
+    if (t >= draw[draw.length - 1].t) return draw[draw.length - 1].v;
+    const i = draw.findIndex((p) => p.t > t) - 1;
+    const p0 = draw[Math.max(0, i)], p1 = draw[i + 1];
+    const alpha = (t - p0.t) / (p1.t - p0.t);
+    return p0.v + alpha * (p1.v - p0.v);
+  }
+
   const line = draw.map((p) => `${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join(" ");
   const area = `${padX},${H - padBot} ${line} ${W - padX},${H - padBot}`;
   const first = draw[0].v, last = draw[draw.length - 1].v;
 
-  // While scrubbing, show stats for the hovered point; otherwise show the end point.
-  const activeIdx = scrub !== null ? scrub : draw.length - 1;
-  const activeV = draw[activeIdx].v;
-  const activeT = draw[activeIdx].t;
+  const activeT = scrubT ?? maxT;
+  const activeV = scrubT !== null ? interpV(scrubT) : last;
   const changePct = first > 0 ? ((activeV - first) / first) * 100 : 0;
   const up = activeV >= first;
   const dir = up ? "up" : "down";
@@ -2588,24 +2594,21 @@ function PriceGraph({ history }) {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const t = minT + frac * (maxT - minT);
-    let closest = 0, minDist = Infinity;
-    draw.forEach((p, i) => {
-      const d = Math.abs(p.t - t);
-      if (d < minDist) { minDist = d; closest = i; }
-    });
-    setScrub(closest);
+    setScrubT(minT + frac * (maxT - minT));
   }
 
-  const scrubX = scrub !== null ? X(draw[scrub].t) : null;
-  const scrubY = scrub !== null ? Y(draw[scrub].v) : null;
+  const scrubX = scrubT !== null ? X(scrubT) : null;
+  const scrubY = scrubT !== null ? Y(interpV(scrubT)) : null;
 
   return (
     <div className="graph">
       <div className="graph-head">
         <div className="graph-head-left">
-          <span className="graph-label">{scrub !== null ? fmtFull(activeT) : "Value history"}</span>
-          {scrub !== null && <span className="graph-scrub-price">{money(activeV)}</span>}
+          <span className="graph-label">{scrubT !== null ? fmtFull(activeT) : "Value history"}</span>
+          {/* always rendered so height never changes; hidden when not scrubbing */}
+          <span className="graph-scrub-price" style={{ visibility: scrubT !== null ? "visible" : "hidden" }}>
+            {money(activeV)}
+          </span>
         </div>
         <span className={"graph-change " + dir}>
           {up ? "▲" : "▼"} {Math.abs(changePct).toFixed(1)}%
@@ -2620,13 +2623,13 @@ function PriceGraph({ history }) {
         style={{ touchAction: "none" }}
         onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
         onPointerMove={handlePointerAt}
-        onPointerUp={() => setScrub(null)}
-        onPointerCancel={() => setScrub(null)}
-        onPointerLeave={() => setScrub(null)}
+        onPointerUp={() => setScrubT(null)}
+        onPointerCancel={() => setScrubT(null)}
+        onPointerLeave={() => setScrubT(null)}
       >
         <polygon className="graph-area" points={area} />
         <polyline className="graph-line" points={line} vectorEffect="non-scaling-stroke" />
-        {scrub !== null ? (
+        {scrubT !== null ? (
           <>
             <line
               x1={scrubX.toFixed(1)} y1={padTop}
