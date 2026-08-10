@@ -97,12 +97,15 @@ body {
 
 .spinner {
   width: 18px; height: 18px;
-  border: 2.5px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
+  border: 2.5px solid rgba(74, 77, 82, 0.2);
+  border-top-color: var(--graphite);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
-[data-theme="dark"] .spinner { border-color: rgba(18,20,23,0.35); border-top-color: var(--fog); }
+/* Spinners inside dark buttons stay white */
+.btn.dark .spinner { border-color: rgba(255,255,255,0.3); border-top-color: rgba(255,255,255,0.9); }
+[data-theme="dark"] .spinner { border-color: rgba(154,160,168,0.2); border-top-color: var(--graphite); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .spinner { border-color: rgba(154,160,168,0.2); border-top-color: var(--graphite); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
