@@ -1035,7 +1035,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   // Manually-priced items are left alone. Throttled to be gentle on the API.
   useEffect(() => {
     if (!itemsReady || bgRefreshed.current) return;
-    const due = items.filter(itemNeedsRefresh);
+    const due = items.filter((it) => itemNeedsRefresh(it) || itemNeedsBackfill(it));
     if (due.length === 0) return;
     bgRefreshed.current = true;
     let dead = false;
@@ -1044,9 +1044,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       for (const it of due) {
         if (dead) return;
         try {
-          await refreshItemPrice(it);
+          if (itemNeedsBackfill(it)) await backfillHistory(it);
+          if (itemNeedsRefresh(it)) await refreshItemPrice(it);
         } catch {}
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 500));
       }
       if (!dead) setRefreshing(false);
     })();
@@ -1342,6 +1343,26 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
     const building = (it.priceHistory?.length || 0) < 2;
     if (building) return true;
     return Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS;
+  }
+
+  function itemNeedsBackfill(it) {
+    return it.value_source !== "manual" && !it.historyBackfilled;
+  }
+
+  async function backfillHistory(it) {
+    const q = [it.brand, it.item_name].filter(Boolean).join(" ");
+    const res = await fetch(`/api/price-history?q=${encodeURIComponent(q)}`);
+    if (!res.ok) return; // network error — don't mark, will retry next session
+    const { history } = await res.json();
+    const existing = it.priceHistory || [];
+    const earliestExisting = existing.length
+      ? Math.min(...existing.map((p) => p.t))
+      : Date.now();
+    // Only prepend points older than what we already have.
+    const newPoints = (history || []).filter((p) => p.t < earliestExisting - 864e5);
+    const merged = [...newPoints, ...existing].sort((a, b) => a.t - b.t).slice(-365);
+    persistPriceFields(it.id, { priceHistory: merged, historyBackfilled: true });
+    if (detailIdRef.current === it.id) setDetailHistory(merged);
   }
 
   async function refreshItemPrice(it) {
