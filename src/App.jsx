@@ -1015,6 +1015,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [cloudItems, setCloudItems] = useState(null);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("recent");
+  const [refreshing, setRefreshing] = useState(false);
   const revealTimers = useRef([]);
   const detailIdRef = useRef(null);
   const bgRefreshed = useRef(false);
@@ -1034,16 +1035,20 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   // Manually-priced items are left alone. Throttled to be gentle on the API.
   useEffect(() => {
     if (!itemsReady || bgRefreshed.current) return;
-    const stale = items.filter(itemNeedsRefresh);
-    if (stale.length === 0) return;
+    const due = items.filter(itemNeedsRefresh);
+    if (due.length === 0) return;
     bgRefreshed.current = true;
     let dead = false;
     (async () => {
-      for (const it of stale) {
+      setRefreshing(true);
+      for (const it of due) {
         if (dead) return;
-        await refreshItemPrice(it);
-        await new Promise((r) => setTimeout(r, 500));
+        try {
+          await refreshItemPrice(it);
+        } catch {}
+        await new Promise((r) => setTimeout(r, 300));
       }
+      if (!dead) setRefreshing(false);
     })();
     return () => {
       dead = true;
@@ -1329,13 +1334,14 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   // and update its current value. Stamps the check time either way so a
   // failed lookup doesn't re-hit eBay on every open.
   // Whether an item is due for a market refresh. Items still building their
-  // first graph (<2 points) refresh every few hours so the graph appears soon;
-  // established items refresh weekly. Manually-priced values are never touched.
+  // first graph (<2 points) always refresh so the graph appears as soon as
+  // possible; once established they refresh weekly. Manually-priced values are
+  // never touched.
   function itemNeedsRefresh(it) {
     if (it.value_source === "manual") return false;
-    const age = Date.now() - (it.priceLastChecked || 0);
     const building = (it.priceHistory?.length || 0) < 2;
-    return age > (building ? 4 * 60 * 60 * 1000 : PRICE_REFRESH_MS);
+    if (building) return true;
+    return Date.now() - (it.priceLastChecked || 0) > PRICE_REFRESH_MS;
   }
 
   async function refreshItemPrice(it) {
@@ -1601,6 +1607,12 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
       {error && <div className="error pop">{error}</div>}
 
+      {refreshing && (
+        <div className="refreshing-note">
+          <span className="spinner" /> Updating prices…
+        </div>
+      )}
+
       {itemsReady && valueSeries.length >= 2 && (
         <div className="card value-chart-card">
           <div className="value-chart-label">Collection value over time</div>
@@ -1852,7 +1864,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             </div>
             <div className="reveal-row">
               <span className="reveal-value">{money(detailItem.estimated_value_usd)}</span>
-              <WeeklyChange history={detailHistory} />
               {detailItem.market_label && (
                 <span className="card-sub">{detailItem.market_label}</span>
               )}
