@@ -271,7 +271,7 @@ async function priceLookup(brand, itemName, type) {
   return null;
 }
 
-const PRICE_REFRESH_MS = 7 * 24 * 60 * 60 * 1000; // weekly
+const PRICE_REFRESH_MS = 24 * 60 * 60 * 1000; // daily
 const ALERT_REFRESH_MS = 12 * 60 * 60 * 1000; // targeted wishlist items: twice daily
 
 /* ------------------------------------------------------------------ */
@@ -1363,7 +1363,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       persistPriceFields(it.id, { priceLastChecked: now });
       return;
     }
-    const history = [...(it.priceHistory || []), { t: now, v: res.value }].slice(-260);
+    const history = [...(it.priceHistory || []), { t: now, v: res.value }].slice(-365);
     persistPriceFields(it.id, {
       estimated_value_usd: res.value,
       value_source: "market",
@@ -2537,8 +2537,8 @@ function PriceGraph({ history }) {
   const svgRef = useRef(null);
 
   const RANGES = [
+    ["1W", 7 * 864e5],
     ["1M", 30 * 864e5],
-    ["6M", 182 * 864e5],
     ["1Y", 365 * 864e5],
     ["ALL", Infinity],
   ];
@@ -2796,7 +2796,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
         const res = await priceLookup("", w.item_name, "");
         const now = Date.now();
         if (res) {
-          const history = [...(w.priceHistory || []), { t: now, v: res.value }].slice(-260);
+          const history = [...(w.priceHistory || []), { t: now, v: res.value }].slice(-365);
           persistWish(w.id, {
             estimated_value_usd: res.value,
             priceHistory: history,
@@ -3212,7 +3212,7 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
         const res = await priceLookup("", item.item_name, "");
         const now = Date.now();
         if (res) {
-          const history = [...(item.priceHistory || []), { t: now, v: res.value }].slice(-260);
+          const history = [...(item.priceHistory || []), { t: now, v: res.value }].slice(-365);
           onPersist(item.id, {
             estimated_value_usd: res.value,
             priceHistory: history,
