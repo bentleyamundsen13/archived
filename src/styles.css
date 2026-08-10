@@ -739,19 +739,22 @@ textarea.input { resize: vertical; }
   margin-top: 4px;
 }
 .graph-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.graph-head-left { display: flex; flex-direction: column; gap: 1px; }
 .graph-label {
   font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--graphite);
 }
+.graph-scrub-price { font-size: 17px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .graph-change { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .graph-change.up { color: var(--up); }
 .graph-change.down { color: var(--down); }
-.graph-svg { width: 100%; height: auto; display: block; }
+.graph-svg { width: 100%; height: auto; display: block; cursor: crosshair; }
 .graph-svg.up { color: var(--up); }
 .graph-svg.down { color: var(--down); }
 .graph-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .graph-area { fill: currentColor; opacity: 0.11; stroke: none; }
 .graph-dot { fill: currentColor; }
+.graph-scrub-line { stroke: currentColor; stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.5; }
 .graph-axis {
   display: flex; justify-content: space-between;
   font-size: 11px; color: var(--graphite); margin-top: 2px;

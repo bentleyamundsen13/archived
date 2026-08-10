@@ -2533,6 +2533,9 @@ function ValuePieChart({ slices, total }) {
 
 function PriceGraph({ history }) {
   const [range, setRange] = useState("ALL");
+  const [scrub, setScrub] = useState(null); // index into draw[] while dragging
+  const svgRef = useRef(null);
+
   const RANGES = [
     ["1M", 30 * 864e5],
     ["6M", 182 * 864e5],
@@ -2570,23 +2573,71 @@ function PriceGraph({ history }) {
   const line = draw.map((p) => `${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join(" ");
   const area = `${padX},${H - padBot} ${line} ${W - padX},${H - padBot}`;
   const first = draw[0].v, last = draw[draw.length - 1].v;
-  const changePct = first > 0 ? ((last - first) / first) * 100 : 0;
-  const up = last >= first;
+
+  // While scrubbing, show stats for the hovered point; otherwise show the end point.
+  const activeIdx = scrub !== null ? scrub : draw.length - 1;
+  const activeV = draw[activeIdx].v;
+  const activeT = draw[activeIdx].t;
+  const changePct = first > 0 ? ((activeV - first) / first) * 100 : 0;
+  const up = activeV >= first;
   const dir = up ? "up" : "down";
   const fmt = (t) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const fmtFull = (t) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  function handlePointerAt(e) {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const t = minT + frac * (maxT - minT);
+    let closest = 0, minDist = Infinity;
+    draw.forEach((p, i) => {
+      const d = Math.abs(p.t - t);
+      if (d < minDist) { minDist = d; closest = i; }
+    });
+    setScrub(closest);
+  }
+
+  const scrubX = scrub !== null ? X(draw[scrub].t) : null;
+  const scrubY = scrub !== null ? Y(draw[scrub].v) : null;
 
   return (
     <div className="graph">
       <div className="graph-head">
-        <span className="graph-label">Value history</span>
+        <div className="graph-head-left">
+          <span className="graph-label">{scrub !== null ? fmtFull(activeT) : "Value history"}</span>
+          {scrub !== null && <span className="graph-scrub-price">{money(activeV)}</span>}
+        </div>
         <span className={"graph-change " + dir}>
           {up ? "▲" : "▼"} {Math.abs(changePct).toFixed(1)}%
         </span>
       </div>
-      <svg className={"graph-svg " + dir} viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Price history">
+      <svg
+        ref={svgRef}
+        className={"graph-svg " + dir}
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label="Price history"
+        style={{ touchAction: "none" }}
+        onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+        onPointerMove={handlePointerAt}
+        onPointerUp={() => setScrub(null)}
+        onPointerCancel={() => setScrub(null)}
+        onPointerLeave={() => setScrub(null)}
+      >
         <polygon className="graph-area" points={area} />
         <polyline className="graph-line" points={line} vectorEffect="non-scaling-stroke" />
-        <circle className="graph-dot" cx={X(maxT)} cy={Y(last)} r="3.5" />
+        {scrub !== null ? (
+          <>
+            <line
+              x1={scrubX.toFixed(1)} y1={padTop}
+              x2={scrubX.toFixed(1)} y2={H - padBot}
+              className="graph-scrub-line"
+            />
+            <circle cx={scrubX.toFixed(1)} cy={scrubY.toFixed(1)} r="4" className="graph-dot" />
+          </>
+        ) : (
+          <circle className="graph-dot" cx={X(maxT)} cy={Y(last)} r="3.5" />
+        )}
       </svg>
       <div className="graph-axis">
         <span>{fmt(minT)}</span>
