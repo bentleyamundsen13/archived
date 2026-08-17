@@ -30,7 +30,6 @@ import {
   watchWishlist,
   updateWishlistItem,
   deleteWishlistItem,
-  setCollectionPublic,
   track,
 } from "./firebase.js";
 
@@ -40,6 +39,7 @@ import {
 
 const GUEST_KEY = "vitrine_guest_v2";
 const THEME_KEY = "archived_theme";
+const LAST_COL_KEY = "archived_last_col";
 
 function loadGuest() {
   try {
@@ -121,23 +121,23 @@ function GainLine({ paid, value, label, big }) {
 
 // Percent change in an item's value over the last week, from its price history.
 // Returns null when there isn't enough data to compare.
-function weeklyChange(history) {
+function weeklyChange(history, currentValue) {
   const h = (history || [])
     .filter((p) => p && typeof p.v === "number" && p.t)
     .sort((a, b) => a.t - b.t);
-  if (h.length < 2) return null;
+  if (h.length < 1) return null;
   const weekAgo = Date.now() - 7 * 864e5;
   let ref = null;
   for (const p of h) if (p.t <= weekAgo) ref = p; // latest point ≥1 week old
   if (!ref) ref = h[0]; // item younger than a week: compare to its first point
-  const cur = h[h.length - 1].v;
+  const cur = h.length >= 2 ? h[h.length - 1].v : (Number(currentValue) || ref.v);
   if (!ref.v) return null;
   return ((cur - ref.v) / ref.v) * 100;
 }
 
 // Small colored ▲/▼/– weekly-change badge for item cards.
-function WeeklyChange({ history }) {
-  const pct = weeklyChange(history);
+function WeeklyChange({ history, value }) {
+  const pct = weeklyChange(history, value);
   if (pct === null) return null;
   const dir = pct > 0.05 ? "up" : pct < -0.05 ? "down" : "flat";
   const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "–";
@@ -253,8 +253,8 @@ function collectionValueSeries(items) {
 
 // Look up the current market price for an item. Returns { value, image, label }
 // or null. Used both when adding an item and for the weekly price refresh.
-async function priceLookup(brand, itemName, type) {
-  const q = [brand, itemName].filter(Boolean).join(" ").trim();
+async function priceLookup(brand, itemName, type, year) {
+  const q = [brand, itemName, year].filter(Boolean).join(" ").trim();
   if (!q) return null;
   try {
     const r = await fetch(
@@ -290,7 +290,13 @@ export default function App() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "system");
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [lastUsedColId, setLastUsedColId] = useState(() => localStorage.getItem(LAST_COL_KEY));
   const toastTimer = useRef(null);
+
+  function handleColUsed(colId) {
+    setLastUsedColId(colId);
+    localStorage.setItem(LAST_COL_KEY, colId);
+  }
 
   // Track connectivity for the offline indicator.
   useEffect(() => {
@@ -469,7 +475,8 @@ export default function App() {
   const open = collections.find((c) => c.id === openId);
 
   return (
-    <div className="page with-tabbar">
+    <div className="app-shell">
+      <div className="page with-tabbar">
       {tab === "collections" ? (
         open ? (
           <div className="screen" key={"col-" + open.id}>
@@ -504,6 +511,22 @@ export default function App() {
             showToast={showToast}
           />
         </div>
+      ) : tab === "scan" ? (
+        <div className="screen" key="scan">
+          <QuickScanPage
+            collections={collections.map(summarize)}
+            cloud={cloud}
+            user={user}
+            setGuestData={setGuestData}
+            showToast={showToast}
+            lastUsedColId={lastUsedColId}
+            onColUsed={handleColUsed}
+          />
+        </div>
+      ) : tab === "deals" ? (
+        <div className="screen" key="deals">
+          <DealFinderPage />
+        </div>
       ) : (
         <div className="screen" key="you">
           <YouPage
@@ -520,6 +543,7 @@ export default function App() {
           />
         </div>
       )}
+      </div>
 
       <nav className="tabbar">
         <button
@@ -545,6 +569,24 @@ export default function App() {
             {alertCount > 0 && <span className="tab-badge">{alertCount}</span>}
           </span>
           Wishlist
+        </button>
+        <button className="tab tab-scan" onClick={() => setTab("scan")}>
+          <div className="tab-scan-btn">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </div>
+          <span className="tab-scan-label">Scan</span>
+        </button>
+        <button
+          className={"tab" + (tab === "deals" ? " active" : "")}
+          onClick={() => setTab("deals")}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" />
+            <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+          </svg>
+          Worth It?
         </button>
         <button
           className={"tab" + (tab === "you" ? " active" : "")}
@@ -884,12 +926,12 @@ function CollectionsHome({ collections, cloud, user, setGuestData, onJoin, onOpe
 
       {collections.length === 0 && !creating && (
         <div className="empty big-empty">
-          <div className="empty-emoji">📦</div>
+          <div className="empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3">
+              <path d="M21 8H3M21 8l-2 10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L3 8M21 8l-9-5-9 5M10 12h4" />
+            </svg>
+          </div>
           <p className="empty-title">Start your first collection</p>
-          <p className="empty-sub">
-            Snap a photo of anything you collect — Archived identifies it, values it, and files it
-            away.
-          </p>
           <button className="btn dark" onClick={() => setCreating(true)}>
             + Create a collection
           </button>
@@ -1001,12 +1043,9 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
   const [detailPhotos, setDetailPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [detailHistory, setDetailHistory] = useState([]);
-  const addPhotoRef = useRef(null);
   const [reveal, setReveal] = useState(null);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [pubCopied, setPubCopied] = useState(false);
-  const [pubBusy, setPubBusy] = useState(false);
   const [editingCol, setEditingCol] = useState(false);
   const [colName, setColName] = useState("");
   const [colType, setColType] = useState("");
@@ -1126,7 +1165,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
           "data:image/jpeg;base64," + (await resizeImage(file, 256, 0.72));
       } catch {}
       try {
-        const q = [item.brand, item.item_name].filter(Boolean).join(" ").trim();
+        const q = [item.brand, item.item_name, item.release_year].filter(Boolean).join(" ").trim();
         if (q) {
           const pr = await fetch(
             "/api/price?q=" + encodeURIComponent(q) +
@@ -1365,7 +1404,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
   async function refreshItemPrice(it) {
     const now = Date.now();
-    const res = await priceLookup(it.brand, it.item_name, col.type);
+    const res = await priceLookup(it.brand, it.item_name, col.type, it.release_year);
     // Couldn't price it (no match / API hiccup): leave it "due" so it retries
     // next time instead of getting stuck with no graph.
     if (!res) return;
@@ -1704,7 +1743,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                   </div>
                   <div className="item-value-col">
                     <div className="card-value">{money(it.estimated_value_usd)}</div>
-                    <WeeklyChange history={it.priceHistory} />
+                    <WeeklyChange history={it.priceHistory} value={it.estimated_value_usd} />
                   </div>
                 </div>
               </article>
@@ -1738,13 +1777,8 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       {sharing && cloud && (
         <div className="sheet-backdrop" onClick={() => setSharing(false)}>
           <div className="card share-sheet pop" onClick={(e) => e.stopPropagation()}>
-            <div className="card-title">Share “{col.name}”</div>
-            <p className="share-blurb">
-              Anyone with this code becomes a collector: they see every item,
-              can add their own, and the collection counts toward their totals
-              too.
-            </p>
-            <div className="join-code">{col.joinCode}</div>
+            <div className=”card-title”>Share “{col.name}”</div>
+            <div className=”join-code”>{col.joinCode}</div>
             <button className="btn dark" onClick={copyInvite}>
               {copied ? "Link copied ✓" : "Copy invite link"}
             </button>
@@ -1759,55 +1793,6 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 </div>
               ))}
             </div>
-            {isOwner && (
-              <>
-                <div className="settings-label">Public showcase</div>
-                <p className="share-blurb">
-                  A read-only page anyone can open with the link — your items and photos,
-                  no prices and no sign-in needed.
-                </p>
-                {col.public ? (
-                  <>
-                    <button
-                      className="btn dark"
-                      onClick={() => {
-                        const url = `${window.location.origin}/?showcase=${col.id}`;
-                        navigator.clipboard?.writeText(url).then(() => {
-                          setPubCopied(true);
-                          setTimeout(() => setPubCopied(false), 1500);
-                        });
-                      }}
-                    >
-                      {pubCopied ? "Showcase link copied ✓" : "Copy showcase link"}
-                    </button>
-                    <button
-                      className="btn light"
-                      disabled={pubBusy}
-                      onClick={async () => {
-                        setPubBusy(true);
-                        await setCollectionPublic(col.id, false).catch(() => {});
-                        setPubBusy(false);
-                      }}
-                    >
-                      Make private
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    className="btn light"
-                    disabled={pubBusy}
-                    onClick={async () => {
-                      setPubBusy(true);
-                      await setCollectionPublic(col.id, true, user?.displayName || null).catch(() => {});
-                      setPubBusy(false);
-                    }}
-                  >
-                    {pubBusy ? <span className="spinner" /> : "Make public"}
-                  </button>
-                )}
-              </>
-            )}
-
             <button className="btn light" onClick={() => setSharing(false)}>
               Done
             </button>
@@ -1824,15 +1809,10 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             <div className="reveal-added">Added to {col.name}</div>
             <div className="reveal-name">{reveal.item.item_name || "Unidentified"}</div>
             <div className="card-sub">
-              {reveal.item.brand || "Unknown"}
-              {reveal.item.release_year ? ` · ${reveal.item.release_year}` : ""}
+              {[reveal.item.brand, reveal.item.release_year].filter(Boolean).join(" · ")}
             </div>
-            {reveal.item.notable_details && (
-              <p className="item-notes">{reveal.item.notable_details}</p>
-            )}
             <div className="reveal-row">
               <span className="reveal-value">{money(reveal.item.estimated_value_usd)}</span>
-              <span className="card-sub">{reveal.item.condition || ""}</span>
             </div>
           </div>
         </div>
@@ -1844,48 +1824,21 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
           onClick={closeDetail}
         >
           <div className="card reveal-card" onClick={(e) => e.stopPropagation()}>
-            <PhotoCarousel
-              photos={detailPhotos}
-              mainId={
-                detailItem.mainPhotoId ||
-                detailPhotos.find((p) => p.id !== "thumb")?.id
-              }
-              onSetMain={makeMainPhoto}
-              onRemovePhoto={removePhoto}
-              onAddPhoto={() => addPhotoRef.current?.click()}
-              adding={photoBusy}
-            />
-            <input
-              ref={addPhotoRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                addPhotoToItem(e.target.files?.[0]);
-                e.target.value = "";
-              }}
-            />
+            <button className="card-close-btn" onClick={closeDetail} aria-label="Close">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+            <PhotoCarousel photos={detailPhotos} />
             <div className="reveal-name">{detailItem.item_name || "Unidentified"}</div>
             <div className="card-sub">
-              {detailItem.brand || "Unknown"}
-              {detailItem.release_year ? ` · ${detailItem.release_year}` : ""}
+              {[detailItem.brand, detailItem.release_year].filter(Boolean).join(" · ")}
             </div>
-            {detailItem.notable_details && (
-              <p className="item-notes">{detailItem.notable_details}</p>
+            {detailItem.condition && (
+              <div className="item-meta">{detailItem.condition}</div>
             )}
-            <div className="item-meta">
-              {detailItem.condition || "Condition unknown"} · {detailItem.added}
-              {detailItem.edited
-                ? " · edited"
-                : detailItem.market_label
-                ? ` · ${detailItem.market_label}`
-                : " · AI estimate"}
-            </div>
             <div className="reveal-row">
               <span className="reveal-value">{money(detailItem.estimated_value_usd)}</span>
-              {detailItem.market_label && (
-                <span className="card-sub">{detailItem.market_label}</span>
-              )}
             </div>
             {Number(detailItem.purchase_price_usd) > 0 && (
               <div className="paid-row">
@@ -2022,6 +1975,18 @@ function FeedbackModal({ user, onClose, showToast }) {
 function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignOut }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+
+  function shareApp() {
+    const url = "https://archived-nu.vercel.app";
+    const text = "Check out Archived — snap a photo of anything in your collection and it tells you what it's worth.";
+    if (navigator.share) {
+      navigator.share({ title: "Archived", text, url }).catch(() => {});
+    } else {
+      navigator.clipboard?.writeText(url)
+        .then(() => showToast("Link copied!"))
+        .catch(() => showToast("Copy the link: archived-nu.vercel.app"));
+    }
+  }
 
   const totalValue = collections.reduce((s, c) => s + (c.totalValue || 0), 0);
   const totalItems = collections.reduce((s, c) => s + (c.itemCount || 0), 0);
@@ -2163,6 +2128,11 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
         </div>
       )}
 
+      <div className="card share-app-card rise">
+        <div className="share-app-label">Collecting is more fun with friends</div>
+        <button className="btn dark" style={{ width: "100%" }} onClick={shareApp}>Share Archived →</button>
+      </div>
+
       <button className="btn light feedback-btn" onClick={() => setShowFeedback(true)}>
         💬 Send feedback
       </button>
@@ -2249,22 +2219,42 @@ function PriceGraph({ history }) {
     ["ALL", Infinity],
   ];
 
+  // Reset scrubber whenever the user picks a different range
+  useEffect(() => { setScrubT(null); }, [range]);
+
   if (!history || history.length < 2) {
     return (
-      <div className="graph-empty">
-        📈 Price history builds over time — a new point is added each day as
-        the value updates.
-      </div>
+      <div className="graph-empty">Builds up as prices update daily.</div>
     );
   }
 
   const now = Date.now();
   const span = RANGES.find(([k]) => k === range)[1];
-  const inRange = history
+  const allSorted = [...history]
     .filter((p) => p && typeof p.v === "number")
-    .filter((p) => span === Infinity || now - p.t <= span)
     .sort((a, b) => a.t - b.t);
-  const draw = inRange.length >= 2 ? inRange : [...history].sort((a, b) => a.t - b.t);
+  const inRange = span === Infinity
+    ? allSorted
+    : allSorted.filter((p) => now - p.t <= span);
+
+  // If the selected range has fewer than 2 points, show a message rather
+  // than silently falling back to the full history (which made buttons look broken).
+  if (inRange.length < 2) {
+    return (
+      <div className="graph">
+        <div className="graph-empty" style={{ marginBottom: 12 }}>
+          Not enough data for {range} yet.
+        </div>
+        <div className="graph-ranges">
+          {RANGES.map(([k]) => (
+            <button key={k} className={"graph-range" + (range === k ? " active" : "")} onClick={() => setRange(k)}>{k}</button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const draw = inRange;
 
   const W = 300, H = 116, padX = 5, padTop = 10, padBot = 16;
   const minT = draw[0].t, maxT = draw[draw.length - 1].t;
@@ -2371,7 +2361,7 @@ function PriceGraph({ history }) {
 /*  Photo carousel (inside the item card)                              */
 /* ------------------------------------------------------------------ */
 
-function PhotoCarousel({ photos, mainId, onSetMain, onRemovePhoto, onAddPhoto, adding }) {
+function PhotoCarousel({ photos }) {
   const trackRef = useRef(null);
   const [index, setIndex] = useState(0);
 
@@ -2386,67 +2376,14 @@ function PhotoCarousel({ photos, mainId, onSetMain, onRemovePhoto, onAddPhoto, a
     if (i !== index) setIndex(i);
   }
 
-  const real = (p) => p.id !== "thumb";
-
   return (
     <div className="carousel">
       <div className="carousel-track" ref={trackRef} onScroll={onScroll}>
         {photos.map((p) => (
           <div className="carousel-slide" key={p.id}>
             <img className="carousel-img" src={p.data} alt="" />
-            {real(p) && (
-              <button
-                className={"photo-star" + (p.id === mainId ? " active" : "")}
-                aria-label={p.id === mainId ? "Main photo" : "Set as main photo"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSetMain(p);
-                }}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill={p.id === mainId ? "currentColor" : "none"}
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                >
-                  <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.9z" />
-                </svg>
-              </button>
-            )}
-            {real(p) && photos.length > 1 && (
-              <button
-                className="photo-del"
-                aria-label="Remove photo"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemovePhoto(p);
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            )}
           </div>
         ))}
-        {photos.filter((p) => p.id !== "thumb").length < 5 && (
-          <button className="carousel-slide carousel-add" onClick={onAddPhoto} disabled={adding}>
-            <span className="carousel-add-inner">
-              {adding ? (
-                "Adding…"
-              ) : (
-                <>
-                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                  Add photo
-                </>
-              )}
-            </span>
-          </button>
-        )}
       </div>
       {photos.length > 1 && (
         <div className="carousel-dots">
@@ -2765,9 +2702,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
           className="btn dark small"
           onClick={() => setView(view === "search" ? "saved" : "search")}
         >
-          {view === "search"
-            ? `Saved${wishlist.length ? ` · ${wishlist.length}` : ""}`
-            : "＋ Search"}
+          {view === "search" ? "Saved" : "＋ Search"}
         </button>
       </header>
 
@@ -2854,8 +2789,11 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
           )}
           {alerts.length > 0 && (
             <div className="wl-alert-banner">
-              🔔 {alerts.length} {alerts.length === 1 ? "item has" : "items have"} hit your
-              target price.
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:"-2px",marginRight:"5px"}}>
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+              </svg>
+              {alerts.length} {alerts.length === 1 ? "item has" : "items have"} hit your target price.
             </div>
           )}
           <main className="list">
@@ -2912,6 +2850,7 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
   const [loading, setLoading] = useState(!!item.itemId);
   const [ended, setEnded] = useState(!item.itemId);
   const [imgIdx, setImgIdx] = useState(0);
+  const galleryTrackRef = useRef(null);
 
   useEffect(() => {
     let dead = false;
@@ -2978,6 +2917,7 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
           <div className="wl-gallery">
             <div
               className="wl-gallery-track"
+              ref={galleryTrackRef}
               onScroll={(e) => {
                 const w = e.target.clientWidth || 1;
                 setImgIdx(Math.round(e.target.scrollLeft / w));
@@ -2988,11 +2928,27 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
               ))}
             </div>
             {images.length > 1 && (
-              <div className="wl-dots">
-                {images.map((_, i) => (
-                  <span key={i} className={"wl-dot" + (i === imgIdx ? " on" : "")} />
-                ))}
-              </div>
+              <>
+                <button
+                  className="wl-gallery-arrow wl-gallery-arrow-left"
+                  aria-label="Previous"
+                  onClick={() => galleryTrackRef.current?.scrollBy({ left: -(galleryTrackRef.current.clientWidth + 8), behavior: "smooth" })}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <button
+                  className="wl-gallery-arrow wl-gallery-arrow-right"
+                  aria-label="Next"
+                  onClick={() => galleryTrackRef.current?.scrollBy({ left: galleryTrackRef.current.clientWidth + 8, behavior: "smooth" })}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+                <div className="wl-dots">
+                  {images.map((_, i) => (
+                    <span key={i} className={"wl-dot" + (i === imgIdx ? " on" : "")} />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
@@ -3060,13 +3016,6 @@ function WishlistItemPage({ item, onBack, onRemove, onPersist, onAdd, alreadySav
           </div>
         )}
 
-        {(detail?.seller || detail?.itemLocation) && (
-          <div className="wl-seller">
-            {detail.seller && <span>Seller · {detail.seller}</span>}
-            {detail.itemLocation && <span>{detail.itemLocation}</span>}
-          </div>
-        )}
-
         {onRemove ? (
           <button className="btn light danger-text wl-remove" onClick={onRemove}>
             Remove from wishlist
@@ -3113,6 +3062,414 @@ function TargetSetter({ item, onPersist }) {
         </div>
       )}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Quick Scan (center tab)                                            */
+/* ------------------------------------------------------------------ */
+
+function QuickScanPage({ collections, cloud, user, setGuestData, showToast, lastUsedColId, onColUsed }) {
+  const camRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [scanned, setScanned] = useState(null); // { item, fullImageB64 }
+  const [addingTo, setAddingTo] = useState(null);
+  const [pickingCol, setPickingCol] = useState(false);
+
+  const sortedCols = [...collections].sort((a, b) => {
+    if (a.id === lastUsedColId) return -1;
+    if (b.id === lastUsedColId) return 1;
+    return 0;
+  });
+
+  async function scan(file) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const imageBase64 = await resizeImage(file);
+      const res = await fetch("/api/identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64, mime: "image/jpeg" }),
+      });
+      const out = await res.json();
+      if (!res.ok || out.error) throw new Error(out.error || `Server error ${res.status}`);
+      const item = {
+        ...out.item,
+        id: crypto.randomUUID(),
+        added: new Date().toISOString().slice(0, 10),
+        created: Date.now(),
+      };
+      try {
+        item.image_url = "data:image/jpeg;base64," + (await resizeImage(file, 256, 0.72));
+      } catch {}
+      try {
+        const q = [item.brand, item.item_name, item.release_year].filter(Boolean).join(" ").trim();
+        if (q) {
+          const pr = await fetch("/api/price?q=" + encodeURIComponent(q));
+          if (pr.ok) {
+            const p = await pr.json();
+            if (p.value) {
+              item.estimated_value_usd = p.value;
+              item.value_source = "market";
+              item.market_label = p.label;
+              item.priceHistory = [{ t: Date.now(), v: p.value }];
+              item.priceLastChecked = Date.now();
+            }
+          }
+        }
+      } catch {}
+      setScanned({ item, fullImageB64: imageBase64 });
+    } catch (e) {
+      setError(e.message || "Something went wrong — try another photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addToCol(col) {
+    setAddingTo(col.id);
+    const { item, fullImageB64 } = scanned;
+    const fullImage = "data:image/jpeg;base64," + fullImageB64;
+    const photoId = crypto.randomUUID();
+    item.mainPhotoId = photoId;
+    try {
+      if (cloud) {
+        await addItemDoc(col.id, item);
+        try { await addPhotoDoc(col.id, item.id, { id: photoId, data: fullImage }); } catch {}
+      } else {
+        item.photos = [{ id: photoId, data: fullImage, created: Date.now() }];
+        setGuestData((d) => ({
+          ...d,
+          collections: d.collections.map((c) =>
+            c.id === col.id ? { ...c, items: [item, ...(c.items || [])] } : c
+          ),
+        }));
+      }
+      onColUsed(col.id);
+      track("add_item");
+      showToast(`Added to ${col.name}`);
+      setScanned(null);
+      setPickingCol(false);
+    } catch {
+      showToast("Couldn't add — check your connection.");
+    } finally {
+      setAddingTo(null);
+    }
+  }
+
+  if (scanned) {
+    const { item } = scanned;
+    return (
+      <>
+        <header className="topbar"><h1>Scan Result</h1></header>
+        <div className="quickscan-result">
+          {item.image_url && (
+            <img className="quickscan-img" src={item.image_url} alt="" />
+          )}
+          <div className="reveal-name">{item.item_name || "Unidentified"}</div>
+          <div className="card-sub">
+            {[item.brand, item.release_year].filter(Boolean).join(" · ")}
+          </div>
+          <div className="quickscan-value">{money(item.estimated_value_usd)}</div>
+
+          {!pickingCol ? (
+            <button className="btn dark big" onClick={() => setPickingCol(true)}>
+              Add to Collection
+            </button>
+          ) : (
+            <div className="quickscan-cols">
+              <div className="label" style={{ marginBottom: 8 }}>Choose a collection</div>
+              {sortedCols.length === 0 ? (
+                <p className="card-sub">No collections yet — create one first.</p>
+              ) : (
+                sortedCols.map((col) => (
+                  <button
+                    key={col.id}
+                    className="card quickscan-col-row"
+                    disabled={!!addingTo}
+                    onClick={() => addToCol(col)}
+                  >
+                    <div className="grow">
+                      <div className="card-title">{col.name}</div>
+                      <div className="card-sub">{col.itemCount || 0} items</div>
+                    </div>
+                    <span className="quickscan-add-btn">
+                      {addingTo === col.id ? <span className="spinner" /> : "+"}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+
+          <button className="btn light" style={{ marginTop: 8 }} onClick={() => { setScanned(null); setPickingCol(false); }}>
+            Scan something else
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <header className="topbar"><h1>Scan Item</h1></header>
+      <div className="quickscan-idle">
+        {error && <div className="error pop">{error}</div>}
+        <div className="quickscan-icon">📷</div>
+        <p className="quickscan-hint">
+          Point your camera at any item.
+        </p>
+        <button className="btn dark big" disabled={busy} onClick={() => camRef.current?.click()}>
+          {busy ? <span className="spinner" /> : "Scan Item"}
+        </button>
+        <input
+          ref={camRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+          onChange={(e) => { scan(e.target.files?.[0]); e.target.value = ""; }}
+        />
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Deal Radar                                                          */
+/* ------------------------------------------------------------------ */
+
+function DealFinderPage() {
+  // scan-a-deal state
+  const camRef = useRef(null);
+  const [scanPhase, setScanPhase] = useState("idle");
+  const [identified, setIdentified] = useState(null);
+  const [scanThumb, setScanThumb] = useState("");
+  const [askingPrice, setAskingPrice] = useState("");
+  const [dealResult, setDealResult] = useState(null);
+  const [scanErr, setScanErr] = useState("");
+
+  async function doScan(file) {
+    if (!file) return;
+    setScanErr("");
+    setScanPhase("identifying");
+    try {
+      const b64 = await resizeImage(file);
+      const res = await fetch("/api/identify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: b64, mime: "image/jpeg" }),
+      });
+      const out = await res.json();
+      if (!res.ok || out.error) throw new Error(out.error || "Identification failed");
+      const thumb = await resizeImage(file, 256, 0.72);
+      setIdentified(out.item);
+      setScanThumb("data:image/jpeg;base64," + thumb);
+      setScanPhase("price");
+    } catch (e) {
+      setScanErr(e.message || "Couldn't identify — try a clearer photo.");
+      setScanPhase("idle");
+    }
+  }
+
+  async function checkDeal() {
+    const asking = parseFloat(String(askingPrice).replace(/[^0-9.]/g, ""));
+    if (!asking || !identified) return;
+    setScanPhase("checking");
+    const q = [identified.brand, identified.item_name, identified.release_year]
+      .filter(Boolean).join(" ");
+    try {
+      const [priceRes, listingsRes] = await Promise.all([
+        fetch("/api/price?q=" + encodeURIComponent(q)),
+        fetch("/api/price?search=1&q=" + encodeURIComponent(q)),
+      ]);
+      const priceData = priceRes.ok ? await priceRes.json() : {};
+      const listingsData = listingsRes.ok ? await listingsRes.json() : {};
+      const marketPrice = priceData.value || null;
+      const listings = (listingsData.results || []).slice(0, 6);
+      const pct = marketPrice
+        ? Math.round(((marketPrice - asking) / marketPrice) * 100)
+        : null;
+      const score = pct !== null
+        ? Math.round(Math.max(0, Math.min(10, 5 + pct / 10)) * 2) / 2
+        : null;
+      setDealResult({ score, pct, marketPrice, asking, listings });
+      setScanPhase("result");
+    } catch {
+      setScanErr("Couldn't fetch prices — try again.");
+      setScanPhase("price");
+    }
+  }
+
+  function resetScan() {
+    setScanPhase("idle");
+    setIdentified(null);
+    setScanThumb("");
+    setAskingPrice("");
+    setDealResult(null);
+    setScanErr("");
+  }
+
+  function scoreColor(s) {
+    if (s === null) return "var(--graphite)";
+    if (s >= 8)   return "#22c55e";
+    if (s >= 6.5) return "#84cc16";
+    if (s >= 4)   return "#f59e0b";
+    if (s >= 2.5) return "#f97316";
+    return "#ef4444";
+  }
+
+  function scoreLabel(s) {
+    if (s === null) return "No data";
+    if (s >= 8)   return "Great Deal";
+    if (s >= 6.5) return "Good Deal";
+    if (s >= 4)   return "Fair Price";
+    if (s >= 2.5) return "Overpriced";
+    return "Rip-off";
+  }
+
+  // Circumference for r=42 ring
+  const CIRC = 263.8;
+  function ringDash(s) {
+    if (s === null) return "0 " + CIRC;
+    return (s / 10) * CIRC + " " + CIRC;
+  }
+
+  return (
+    <>
+      <header className="topbar"><h1>Worth It?</h1></header>
+      <div className="df-pane">
+          {scanPhase === "idle" && (
+            <div className="quickscan-idle">
+              {scanErr && <div className="error pop">{scanErr}</div>}
+              <div className="empty-icon" style={{ marginBottom: 16 }}>
+                <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+              </div>
+              <p className="quickscan-hint">Snap any item to check if the price is right.</p>
+              <button className="btn dark big" onClick={() => camRef.current?.click()}>Scan Item</button>
+              <input ref={camRef} type="file" accept="image/*" capture="environment" hidden
+                onChange={e => { doScan(e.target.files?.[0]); e.target.value = ""; }} />
+            </div>
+          )}
+
+          {(scanPhase === "identifying" || scanPhase === "checking") && (
+            <div className="quickscan-idle">
+              <span className="spinner" style={{ width: 36, height: 36, borderWidth: 3 }} />
+              <p className="quickscan-hint" style={{ marginTop: 20 }}>
+                {scanPhase === "identifying" ? "Identifying item…" : "Checking market prices…"}
+              </p>
+            </div>
+          )}
+
+          {scanPhase === "price" && identified && (
+            <div className="df-price-form">
+              {scanThumb && <img className="quickscan-img" src={scanThumb} alt="" />}
+              <div className="reveal-name">{identified.item_name || "Item"}</div>
+              <div className="card-sub">{[identified.brand, identified.release_year].filter(Boolean).join(" · ")}</div>
+              {scanErr && <div className="error pop" style={{ marginTop: 10 }}>{scanErr}</div>}
+              <label className="df-price-label">Asking price</label>
+              <div className="df-price-row">
+                <span className="df-price-dollar">$</span>
+                <input
+                  className="input df-price-input"
+                  type="number"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={askingPrice}
+                  onChange={e => setAskingPrice(e.target.value)}
+                />
+              </div>
+              <button className="btn dark big" style={{ marginTop: 16 }} disabled={!askingPrice} onClick={checkDeal}>
+                Check Deal
+              </button>
+              <button className="btn light" style={{ marginTop: 8 }} onClick={resetScan}>Cancel</button>
+            </div>
+          )}
+
+          {scanPhase === "result" && dealResult && (
+            <div className="df-result">
+              {scanThumb && <img className="quickscan-img" src={scanThumb} alt="" />}
+              <div className="reveal-name">{identified?.item_name}</div>
+              <div className="card-sub">{[identified?.brand, identified?.release_year].filter(Boolean).join(" · ")}</div>
+
+              <div className="df-score-wrap">
+                <div className="df-score-ring-wrap">
+                  <svg className="df-score-ring" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="var(--mist)" strokeWidth="8" />
+                    <circle cx="50" cy="50" r="42" fill="none"
+                      stroke={scoreColor(dealResult.score)}
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      strokeDasharray={ringDash(dealResult.score)}
+                      transform="rotate(-90 50 50)"
+                    />
+                  </svg>
+                  <div className="df-score-inner">
+                    <span className="df-score-num" style={{ color: scoreColor(dealResult.score) }}>
+                      {dealResult.score !== null ? dealResult.score : "—"}
+                    </span>
+                    <span className="df-score-pct">/ 10</span>
+                  </div>
+                </div>
+                <div className="df-score-label" style={{ color: scoreColor(dealResult.score) }}>
+                  {scoreLabel(dealResult.score)}
+                </div>
+                <div className="df-score-sub">
+                  {dealResult.pct !== null
+                    ? dealResult.pct >= 0
+                      ? `${dealResult.pct}% below market`
+                      : `${Math.abs(dealResult.pct)}% above market`
+                    : "No market data found"}
+                </div>
+              </div>
+
+              <div className="df-compare card">
+                <div className="df-compare-stat">
+                  <span className="df-compare-lbl">You pay</span>
+                  <span className="df-compare-val">{money(dealResult.asking)}</span>
+                </div>
+                <div className="df-compare-sep">vs</div>
+                <div className="df-compare-stat">
+                  <span className="df-compare-lbl">Market avg</span>
+                  <span className="df-compare-val">{dealResult.marketPrice ? money(dealResult.marketPrice) : "—"}</span>
+                </div>
+              </div>
+
+              {dealResult.listings.length > 0 && (
+                <>
+                  <div className="df-listings-hd">Similar on eBay</div>
+                  <div className="df-results">
+                    {dealResult.listings.map(r => <DealListingCard key={r.itemId} item={r} />)}
+                  </div>
+                </>
+              )}
+
+              <button className="btn light" style={{ marginTop: 16, marginBottom: 8 }} onClick={resetScan}>
+                Scan another item
+              </button>
+            </div>
+          )}
+      </div>
+    </>
+  );
+}
+
+function DealListingCard({ item }) {
+  return (
+    <a className="deal-card" href={item.url} target="_blank" rel="noopener noreferrer">
+      {item.image && <img className="deal-card-img" src={item.image} alt="" loading="lazy" />}
+      <div className="deal-card-body">
+        <div className="deal-card-title">{item.title}</div>
+        {item.condition && <div className="deal-card-cond">{item.condition}</div>}
+      </div>
+      <div className="deal-card-price">{money(item.price)}</div>
+    </a>
   );
 }
 

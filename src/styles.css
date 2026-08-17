@@ -59,12 +59,30 @@ body {
   transition: background 0.25s ease, color 0.25s ease;
 }
 
+/* Fixed app shell: fills the viewport, never scrolls itself. Only the
+   content area (.page) scrolls, and the tab bar lives outside that scroll
+   container — so on iOS PWAs it can't drift during rubber-band overscroll. */
+.app-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .page {
   max-width: 480px;
   margin: 0 auto;
   padding: max(20px, env(safe-area-inset-top)) 20px 40px;
 }
-.page.with-tabbar { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+.page.with-tabbar {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: 24px;
+}
 .center { display: grid; place-items: center; min-height: 60vh; color: var(--graphite); }
 
 /* ---------------- motion ---------------- */
@@ -280,8 +298,7 @@ textarea.input { resize: vertical; }
 /* ---------------- tab bar ---------------- */
 
 .tabbar {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
+  flex-shrink: 0;
   display: flex;
   justify-content: center;
   gap: 8px;
@@ -303,6 +320,10 @@ textarea.input { resize: vertical; }
 .tab.active { color: var(--ink); }
 .tab svg { transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1); }
 .tab.active svg { transform: translateY(-1px) scale(1.06); }
+
+.tab-scan { flex: 1; max-width: 200px; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: none; cursor: pointer; padding: 6px 0; margin-top: 0; }
+.tab-scan-btn { width: 44px; height: 22px; border-radius: 7px; background: var(--ink); color: var(--paper); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.20); flex-shrink: 0; }
+.tab-scan-label { font-size: 11.5px; font-weight: 600; color: var(--graphite); }
 
 /* ---------------- You page ---------------- */
 
@@ -458,6 +479,7 @@ textarea.input { resize: vertical; }
   gap: 6px; padding: 48px 24px;
 }
 .empty-emoji { font-size: 44px; margin-bottom: 6px; }
+.empty-icon { color: var(--graphite); opacity: 0.5; margin-bottom: 6px; }
 .empty-title { font-size: 18px; font-weight: 700; color: var(--ink); margin: 0; }
 .empty-sub { font-size: 14px; color: var(--graphite); line-height: 1.5; max-width: 34ch; margin: 0 0 8px; }
 
@@ -568,7 +590,7 @@ textarea.input { resize: vertical; }
 
 /* wishlist item page */
 .wl-page { padding-bottom: 40px; }
-.wl-gallery { margin: 6px -4px 0; }
+.wl-gallery { margin: 6px -4px 0; position: relative; }
 .wl-gallery-track {
   display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch; scrollbar-width: none; padding: 0 4px;
@@ -578,6 +600,26 @@ textarea.input { resize: vertical; }
   flex: 0 0 100%; scroll-snap-align: center; width: 100%; aspect-ratio: 1;
   object-fit: contain; background: var(--paper); border-radius: 16px;
   border: 1px solid var(--mist);
+}
+.wl-gallery-arrow {
+  display: none;
+  position: absolute;
+  top: calc(50% - 18px);
+  transform: translateY(-50%);
+  width: 36px; height: 36px; border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 80%, transparent);
+  color: var(--paper);
+  border: none; cursor: pointer;
+  align-items: center; justify-content: center;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity .18s;
+}
+.wl-gallery-arrow-left { left: 10px; }
+.wl-gallery-arrow-right { right: 10px; }
+@media (hover: hover) {
+  .wl-gallery-arrow { display: flex; }
+  .wl-gallery:hover .wl-gallery-arrow { opacity: 1; }
 }
 .wl-dots { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
 .wl-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--mist); transition: background .2s; }
@@ -713,6 +755,7 @@ textarea.input { resize: vertical; }
 }
 .reveal-backdrop.out { animation: lightboxIn 0.3s ease reverse forwards; }
 .reveal-card {
+  position: relative;
   width: min(88vw, 380px);
   max-height: 86vh; overflow-y: auto;
   display: flex; flex-direction: column; gap: 6px;
@@ -751,7 +794,7 @@ textarea.input { resize: vertical; }
 .graph-change { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .graph-change.up { color: var(--up); }
 .graph-change.down { color: var(--down); }
-.graph-svg { width: 100%; height: auto; display: block; cursor: crosshair; }
+.graph-svg { width: 100%; height: auto; display: block; cursor: default; }
 .graph-svg.up { color: var(--up); }
 .graph-svg.down { color: var(--down); }
 .graph-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
@@ -794,6 +837,72 @@ textarea.input { resize: vertical; }
 @keyframes revealOut {
   to { opacity: 0; transform: translateY(70px) scale(0.3); }
 }
+.card-close-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 10;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--mist); border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink); flex-shrink: 0;
+}
+.card-close-btn:active { opacity: 0.7; }
+
+/* ---------------- QuickScan page ---------------- */
+.quickscan-idle {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 1; padding: 40px 20px; text-align: center; gap: 16px; min-height: 60vh;
+}
+.quickscan-icon { font-size: 60px; line-height: 1; }
+.quickscan-hint { color: var(--graphite); max-width: 280px; margin: 0; line-height: 1.5; }
+.quickscan-result { padding: 0 16px 40px; }
+.quickscan-img { width: 100%; max-height: 240px; object-fit: contain; border-radius: 14px; margin-bottom: 16px; background: var(--mist); }
+.quickscan-value { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 10px 0 18px; }
+.quickscan-cols { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
+.quickscan-col-row { display: flex; align-items: center; padding: 14px 16px; cursor: pointer; text-align: left; width: 100%; background: none; }
+.quickscan-add-btn { font-size: 22px; font-weight: 300; color: var(--graphite); width: 32px; text-align: center; flex-shrink: 0; }
+
+/* ---------------- Deal Finder ---------------- */
+.df-pane { display: flex; flex-direction: column; }
+
+.df-results { display: flex; flex-direction: column; gap: 10px; }
+
+.deal-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--paper); border: 1px solid var(--mist); border-radius: 14px; text-decoration: none; color: inherit; transition: background 0.12s; }
+.deal-card:active { background: var(--fog); }
+.deal-card-img { width: 60px; height: 60px; object-fit: cover; border-radius: 10px; background: var(--mist); flex-shrink: 0; }
+.deal-card-body { flex: 1; min-width: 0; }
+.deal-card-title { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.deal-card-cond { font-size: 11.5px; color: var(--graphite); margin-top: 3px; }
+.deal-card-price { font-size: 15px; font-weight: 700; color: var(--ink); flex-shrink: 0; }
+
+.df-price-form { display: flex; flex-direction: column; align-items: center; text-align: center; padding-top: 8px; }
+.df-price-label { font-size: 13px; font-weight: 600; color: var(--graphite); margin: 20px 0 8px; align-self: flex-start; }
+.df-price-row { display: flex; align-items: center; gap: 0; width: 100%; border: 1.5px solid var(--mist); border-radius: 12px; overflow: hidden; background: var(--paper); }
+.df-price-dollar { padding: 0 10px 0 14px; font-size: 18px; font-weight: 700; color: var(--ink); line-height: 1; }
+.df-price-input { flex: 1; border: none; background: none; padding: 14px 14px 14px 0; font-size: 18px; font-weight: 700; color: var(--ink); outline: none; }
+
+.df-score-wrap { display: flex; flex-direction: column; align-items: center; margin: 20px 0 16px; gap: 6px; }
+.df-score-ring-wrap { position: relative; width: 120px; height: 120px; }
+.df-score-ring { width: 120px; height: 120px; }
+.df-score-inner { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.df-score-num { font-size: 36px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.df-score-pct { font-size: 12px; font-weight: 600; color: var(--graphite); margin-top: 3px; }
+.df-score-label { font-size: 18px; font-weight: 700; }
+.df-score-sub { font-size: 13px; color: var(--graphite); }
+
+.df-compare { display: flex; align-items: center; justify-content: center; gap: 20px; padding: 16px 20px; margin-bottom: 16px; }
+.df-compare-stat { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.df-compare-lbl { font-size: 11.5px; font-weight: 600; color: var(--graphite); text-transform: uppercase; letter-spacing: 0.04em; }
+.df-compare-val { font-size: 20px; font-weight: 800; color: var(--ink); }
+.df-compare-sep { font-size: 13px; font-weight: 600; color: var(--graphite); }
+
+.df-result { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.df-result .df-results { width: 100%; text-align: left; }
+.df-result .deal-card { text-align: left; }
+.df-listings-hd { font-size: 14px; font-weight: 700; color: var(--ink); align-self: flex-start; margin-bottom: 10px; }
+
+/* ---------------- Share app card ---------------- */
+.share-app-card { padding: 18px 20px; text-align: center; margin-top: 12px; margin-bottom: 4px; }
+.share-app-label { font-size: 14px; font-weight: 600; color: var(--ink); margin-bottom: 12px; }
+
 .reveal-img {
   width: 100%; aspect-ratio: 1; object-fit: cover;
   border-radius: 14px; margin-bottom: 6px;
