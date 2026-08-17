@@ -1559,7 +1559,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
 
   function copyInvite() {
     const link = `${window.location.origin}/?join=${col.joinCode}`;
-    const text = `Join my “${col.name}” collection on Archived: ${link}`;
+    const text = `Join my "${col.name}" collection on Archived: ${link}`;
     navigator.clipboard
       ?.writeText(text)
       .then(() => {
@@ -1777,8 +1777,8 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       {sharing && cloud && (
         <div className="sheet-backdrop" onClick={() => setSharing(false)}>
           <div className="card share-sheet pop" onClick={(e) => e.stopPropagation()}>
-            <div className=”card-title”>Share “{col.name}”</div>
-            <div className=”join-code”>{col.joinCode}</div>
+            <div className="card-title">{`Share "${col.name}"`}</div>
+            <div className="join-code">{col.joinCode}</div>
             <button className="btn dark" onClick={copyInvite}>
               {copied ? "Link copied ✓" : "Copy invite link"}
             </button>
