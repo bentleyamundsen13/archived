@@ -276,6 +276,25 @@ const ALERT_REFRESH_MS = 12 * 60 * 60 * 1000; // targeted wishlist items: twice 
 /*  Root                                                               */
 /* ------------------------------------------------------------------ */
 
+function LoadingScreen() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 8000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="loading-screen">
+      <div className="loading-brand">Archived</div>
+      <div className="loading-sub">loading</div>
+      {slow && (
+        <button className="loading-reload" onClick={() => window.location.reload()}>
+          Tap to reload
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [guest, setGuest] = useState(false);
@@ -462,12 +481,12 @@ export default function App() {
   const showcaseId = new URLSearchParams(window.location.search).get("showcase");
   if (showcaseId) return <ShowcasePage id={showcaseId} />;
 
-  if (!authChecked) return <div className="page center">Loading…</div>;
+  if (!authChecked) return <LoadingScreen />;
   if (!user && !guest) return <Landing onGuest={() => setGuest(true)} />;
 
   const cloud = !!user;
   const loaded = cloud ? cols !== null : guestLoaded;
-  if (!loaded) return <div className="page center">Loading…</div>;
+  if (!loaded) return <LoadingScreen />;
 
   const collections = cloud ? cols : guestData.collections;
   const wishlist = cloud ? cloudWishlist : guestData.wishlist || [];
