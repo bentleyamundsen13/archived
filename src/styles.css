@@ -85,6 +85,11 @@ body {
   overscroll-behavior-y: contain;
   padding-bottom: 24px;
 }
+/* Lock background scroll whenever any overlay is open */
+.page.with-tabbar:has(.reveal-backdrop),
+.page.with-tabbar:has(.sheet-backdrop) {
+  overflow: hidden;
+}
 .center { display: grid; place-items: center; min-height: 60vh; color: var(--graphite); }
 .loading-screen {
   position: fixed; inset: 0;
