@@ -285,7 +285,7 @@ function LoadingScreen() {
   return (
     <div className="loading-screen">
       <div className="loading-brand">Archived</div>
-      <div className="loading-sub">loading</div>
+      <div className="loading-sub">Loading...</div>
       {slow && (
         <button className="loading-reload" onClick={() => window.location.reload()}>
           Tap to reload
