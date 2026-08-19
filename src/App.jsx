@@ -1810,9 +1810,7 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             </button>
-            {reveal.item.image_url && (
-              <img className="reveal-img" src={reveal.item.image_url} alt="" />
-            )}
+            <PhotoCarousel photos={reveal.item.image_url ? [{ id: "reveal", data: reveal.item.image_url }] : []} />
             <div className="reveal-added">Added to {col.name}</div>
             <div className="reveal-name">{reveal.item.item_name || "Unidentified"}</div>
             <div className="card-sub">
@@ -1823,6 +1821,39 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
             )}
             <div className="reveal-row">
               <span className="reveal-value">{money(reveal.item.estimated_value_usd)}</span>
+            </div>
+            {Number(reveal.item.purchase_price_usd) > 0 && (
+              <div className="paid-row">
+                <GainLine paid={reveal.item.purchase_price_usd} value={reveal.item.estimated_value_usd} />
+                <span className="card-sub">
+                  Paid {money(reveal.item.purchase_price_usd)}
+                  {reveal.item.purchase_date ? ` · ${reveal.item.purchase_date}` : ""}
+                </span>
+              </div>
+            )}
+            {reveal.item.listing_url && (
+              <a className="btn light listing-link" href={ebayAffiliate(reveal.item.listing_url)} target="_blank" rel="noreferrer">
+                View listing ↗
+              </a>
+            )}
+            <PriceGraph history={reveal.item.priceHistory || []} />
+            <button
+              className="btn dark list-ebay-btn"
+              onClick={() => {
+                const kw = [reveal.item.brand, reveal.item.item_name].filter(Boolean).join(" ");
+                closeReveal();
+                openExternal(ebayAffiliate("https://www.ebay.com/sch/i.html?_nkw=" + encodeURIComponent(kw)));
+              }}
+            >
+              View on eBay ↗
+            </button>
+            <div className="row detail-actions">
+              <button className="btn light" onClick={() => { const id = reveal.item.id; closeReveal(); setEditingId(id); }}>
+                Edit
+              </button>
+              <button className="btn light danger-text" onClick={() => { const id = reveal.item.id; closeReveal(); removeItem(id); }}>
+                Remove
+              </button>
             </div>
           </div>
         </div>

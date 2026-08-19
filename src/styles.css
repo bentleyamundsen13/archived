@@ -750,7 +750,9 @@ textarea.input { resize: vertical; }
 /* new-item reveal: the card pops up, holds, then shrinks into the list */
 .reveal-backdrop {
   position: fixed; inset: 0; z-index: 70;
-  display: grid; place-items: center; padding: 24px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  padding: 20px 20px 40px;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
   background: rgba(28, 30, 33, 0.45);
   backdrop-filter: blur(3px);
   animation: lightboxIn 0.25s ease;
@@ -759,7 +761,7 @@ textarea.input { resize: vertical; }
 .reveal-card {
   position: relative;
   width: min(88vw, 380px);
-  max-height: min(86dvh, calc(100dvh - 100px)); overflow-y: auto;
+  flex-shrink: 0;
   display: flex; flex-direction: column; gap: 6px;
   padding: 18px;
   border-radius: 20px;
