@@ -75,6 +75,8 @@ body {
   padding: max(20px, env(safe-area-inset-top)) 20px 40px;
 }
 .page.with-tabbar {
+  position: relative;
+  z-index: 1;
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
@@ -757,7 +759,7 @@ textarea.input { resize: vertical; }
 .reveal-card {
   position: relative;
   width: min(88vw, 380px);
-  max-height: 86vh; overflow-y: auto;
+  max-height: min(86dvh, calc(100dvh - 100px)); overflow-y: auto;
   display: flex; flex-direction: column; gap: 6px;
   padding: 18px;
   border-radius: 20px;
