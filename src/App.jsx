@@ -3353,7 +3353,7 @@ function QuickScanPage({ collections, cloud, user, setGuestData, showToast, last
             </div>
           )}
 
-          <button className="btn light" style={{ marginTop: 8 }} onClick={() => { setScanned(null); setPickingCol(false); }}>
+          <button className="btn light big" style={{ marginTop: 8 }} onClick={() => { setScanned(null); setPickingCol(false); }}>
             Scan something else
           </button>
         </div>
@@ -3598,7 +3598,7 @@ function DealFinderPage() {
                 </>
               )}
 
-              <button className="btn light" style={{ marginTop: 16, marginBottom: 8 }} onClick={resetScan}>
+              <button className="btn light big" style={{ marginTop: 16, marginBottom: 8 }} onClick={resetScan}>
                 Scan another item
               </button>
             </div>
