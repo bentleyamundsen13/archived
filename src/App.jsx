@@ -1731,7 +1731,18 @@ function CollectionPage({ col, cloud, user, setGuestData, showToast, onBack }) {
       )}
 
       {!itemsReady ? (
-        <div className="center">Loading…</div>
+        <main className="list">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="skel-card">
+              <div className="skel skel-thumb" />
+              <div className="skel-lines">
+                <div className="skel skel-title" />
+                <div className="skel skel-sub" />
+              </div>
+              <div className="skel skel-value" />
+            </div>
+          ))}
+        </main>
       ) : (
         <main className="list">
           {visibleItems.map((it, idx) =>
