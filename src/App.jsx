@@ -2051,7 +2051,7 @@ function FeedbackModal({ user, onClose, showToast }) {
 /*  You page + settings                                                */
 /* ------------------------------------------------------------------ */
 
-function SettingsPage({ user, theme, setTheme, onSignOut, onBack, showToast }) {
+function SettingsPage({ user, theme, setTheme, onSignOut, onBack, onSupport, showToast }) {
   const hasPassword = user?.providerData?.some((p) => p.providerId === "password");
   const [linkEmail, setLinkEmail] = useState("");
   const [linkPass, setLinkPass] = useState("");
@@ -2158,6 +2158,15 @@ function SettingsPage({ user, theme, setTheme, onSignOut, onBack, showToast }) {
         </div>
       )}
 
+      <div className="settings-group">
+        <div className="settings-label">Help</div>
+        <div className="card settings-card">
+          <button className="settings-row-btn" onClick={onSupport}>
+            Support <span className="settings-row-chevron">›</span>
+          </button>
+        </div>
+      </div>
+
       <p className="fineprint">
         Item values are AI or marketplace estimates for personal reference,
         not certified appraisals.
@@ -2166,9 +2175,71 @@ function SettingsPage({ user, theme, setTheme, onSignOut, onBack, showToast }) {
   );
 }
 
+function SupportPage({ onBack }) {
+  return (
+    <div className="screen" key="support">
+      <button className="link back" onClick={onBack}>← Settings</button>
+      <header className="topbar"><h1>Support</h1></header>
+
+      <div className="settings-group">
+        <div className="settings-label">Contact</div>
+        <div className="card settings-card">
+          <div className="card-sub">Have a question or found a bug? Reach out and we'll get back to you.</div>
+          <a className="btn dark" href="mailto:support@archived-nu.vercel.app">
+            Email support
+          </a>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-label">FAQ</div>
+        <div className="card settings-card">
+          <details className="support-faq">
+            <summary>How are item values estimated?</summary>
+            <p>Archived uses AI image recognition and live eBay sold listings to estimate what your items are worth on the secondary market. Values update automatically.</p>
+          </details>
+          <details className="support-faq">
+            <summary>Is my data private?</summary>
+            <p>Your collections are stored in your private Firebase account and are only visible to people you share them with via a join code.</p>
+          </details>
+          <details className="support-faq">
+            <summary>How do I share a collection?</summary>
+            <p>Open a collection, tap the share icon, and send your join code. Anyone with the code can view and add items.</p>
+          </details>
+          <details className="support-faq">
+            <summary>Why isn't my item recognized?</summary>
+            <p>Try scanning in better lighting with the item label or logo visible. You can always edit the details manually after scanning.</p>
+          </details>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-label">Privacy</div>
+        <div className="card settings-card">
+          <div className="card-sub">
+            Archived stores your collection data in Firebase (Google). Photos are stored securely and only accessible by you. We do not sell your data or share it with third parties.
+          </div>
+        </div>
+      </div>
+
+      <p className="fineprint" style={{ textAlign: "center" }}>Archived · v1.0</p>
+    </div>
+  );
+}
+
 function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignOut }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showSupport, setShowSupport] = useState(() => window.location.pathname === "/support");
   const [showFeedback, setShowFeedback] = useState(false);
+
+  function goSupport() {
+    setShowSupport(true);
+    window.history.pushState(null, "", "/support");
+  }
+  function leaveSupport() {
+    setShowSupport(false);
+    window.history.pushState(null, "", "/");
+  }
 
   function shareApp() {
     const url = "https://archived-nu.vercel.app";
@@ -2222,6 +2293,10 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
   }
   const showPie = typeSlices.length >= 2;
 
+  if (showSupport) {
+    return <SupportPage onBack={leaveSupport} />;
+  }
+
   if (showSettings) {
     return (
       <SettingsPage
@@ -2230,6 +2305,7 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
         setTheme={setTheme}
         onSignOut={onSignOut}
         onBack={() => setShowSettings(false)}
+        onSupport={goSupport}
         showToast={showToast}
       />
     );

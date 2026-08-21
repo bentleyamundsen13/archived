@@ -431,6 +431,23 @@ textarea.input { resize: vertical; }
 }
 .settings-card { display: flex; flex-direction: column; gap: 12px; }
 .link-email-form { display: flex; flex-direction: column; gap: 10px; }
+.settings-row-btn {
+  display: flex; justify-content: space-between; align-items: center;
+  width: 100%; background: none; border: none; padding: 0;
+  font-family: inherit; font-size: 15px; font-weight: 600; color: var(--ink);
+  cursor: pointer;
+}
+.settings-row-chevron { color: var(--graphite); font-size: 18px; line-height: 1; }
+.support-faq { border-top: 1px solid var(--mist); padding-top: 10px; }
+.support-faq:first-child { border-top: none; padding-top: 0; }
+.support-faq summary {
+  font-size: 14px; font-weight: 600; cursor: pointer; list-style: none;
+  color: var(--ink);
+}
+.support-faq summary::-webkit-details-marker { display: none; }
+.support-faq p {
+  font-size: 13.5px; color: var(--graphite); margin-top: 8px; line-height: 1.55;
+}
 
 .segmented {
   display: flex; background: var(--paper);
