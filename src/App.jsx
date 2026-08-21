@@ -597,7 +597,6 @@ export default function App() {
               <path d="M12 5v14M5 12h14" />
             </svg>
           </div>
-          <span className="tab-scan-label">Scan</span>
         </button>
         <button
           className={"tab" + (tab === "deals" ? " active" : "")}
