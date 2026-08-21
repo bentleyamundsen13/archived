@@ -30,6 +30,7 @@ import {
   watchWishlist,
   updateWishlistItem,
   deleteWishlistItem,
+  linkEmailPassword,
   track,
 } from "./firebase.js";
 
@@ -2032,6 +2033,121 @@ function FeedbackModal({ user, onClose, showToast }) {
 /*  You page + settings                                                */
 /* ------------------------------------------------------------------ */
 
+function SettingsPage({ user, theme, setTheme, onSignOut, onBack, showToast }) {
+  const hasPassword = user?.providerData?.some((p) => p.providerId === "password");
+  const [linkEmail, setLinkEmail] = useState("");
+  const [linkPass, setLinkPass] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkDone, setLinkDone] = useState(false);
+
+  async function handleLink(e) {
+    e.preventDefault();
+    setLinkBusy(true);
+    try {
+      await linkEmailPassword(linkEmail.trim(), linkPass);
+      setLinkDone(true);
+      setLinkEmail("");
+      setLinkPass("");
+      showToast("Email & password linked!");
+    } catch (err) {
+      const msg =
+        err.code === "auth/email-already-in-use" ? "That email is already in use." :
+        err.code === "auth/weak-password" ? "Password must be at least 6 characters." :
+        err.code === "auth/provider-already-linked" ? "Already linked." :
+        "Something went wrong. Try again.";
+      showToast(msg);
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  return (
+    <div className="screen" key="settings">
+      <button className="link back" onClick={onBack}>← You</button>
+      <header className="topbar"><h1>Settings</h1></header>
+
+      <div className="settings-group">
+        <div className="settings-label">Appearance</div>
+        <div className="segmented">
+          {["light", "system", "dark"].map((t) => (
+            <button key={t} className={"seg" + (theme === t ? " active" : "")} onClick={() => setTheme(t)}>
+              {t[0].toUpperCase() + t.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-label">Account</div>
+        <div className="card settings-card">
+          <div className="card-sub">
+            {user ? user.email : "Guest — data is saved on this device only"}
+          </div>
+          <button className="btn light" onClick={onSignOut}>
+            {user ? "Sign out" : "Exit guest mode"}
+          </button>
+        </div>
+      </div>
+
+      {user && !hasPassword && !linkDone && (
+        <div className="settings-group">
+          <div className="settings-label">Link email &amp; password</div>
+          <div className="card settings-card">
+            <div className="card-sub">Add a password so you can sign in without Google.</div>
+            <form className="link-email-form" onSubmit={handleLink}>
+              <input
+                className="input"
+                type="email"
+                placeholder="Email"
+                value={linkEmail}
+                onChange={(e) => setLinkEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="Password (6+ characters)"
+                value={linkPass}
+                onChange={(e) => setLinkPass(e.target.value)}
+                required
+                minLength={6}
+                autoComplete="new-password"
+              />
+              <button className="btn dark" type="submit" disabled={linkBusy || !linkEmail || !linkPass}>
+                {linkBusy ? <span className="spinner" /> : "Link account"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {user && !hasPassword && linkDone && (
+        <div className="settings-group">
+          <div className="settings-label">Link email &amp; password</div>
+          <div className="card settings-card">
+            <div className="card-sub">Email &amp; password linked to your account.</div>
+          </div>
+        </div>
+      )}
+
+      {user && hasPassword && (
+        <div className="settings-group">
+          <div className="settings-label">Link email &amp; password</div>
+          <div className="card settings-card">
+            <div className="card-sub">Email &amp; password already linked.</div>
+          </div>
+        </div>
+      )}
+
+      <p className="fineprint">
+        Item values are AI or marketplace estimates for personal reference,
+        not certified appraisals.
+      </p>
+    </div>
+  );
+}
+
 function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignOut }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -2090,46 +2206,14 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
 
   if (showSettings) {
     return (
-      <div className="screen" key="settings">
-        <button className="link back" onClick={() => setShowSettings(false)}>
-          ← You
-        </button>
-        <header className="topbar">
-          <h1>Settings</h1>
-        </header>
-
-        <div className="settings-group">
-          <div className="settings-label">Appearance</div>
-          <div className="segmented">
-            {["light", "system", "dark"].map((t) => (
-              <button
-                key={t}
-                className={"seg" + (theme === t ? " active" : "")}
-                onClick={() => setTheme(t)}
-              >
-                {t[0].toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-group">
-          <div className="settings-label">Account</div>
-          <div className="card settings-card">
-            <div className="card-sub">
-              {user ? user.email : "Guest — data is saved on this device only"}
-            </div>
-            <button className="btn light" onClick={onSignOut}>
-              {user ? "Sign out" : "Exit guest mode"}
-            </button>
-          </div>
-        </div>
-
-        <p className="fineprint">
-          Item values are AI or marketplace estimates for personal reference,
-          not certified appraisals.
-        </p>
-      </div>
+      <SettingsPage
+        user={user}
+        theme={theme}
+        setTheme={setTheme}
+        onSignOut={onSignOut}
+        onBack={() => setShowSettings(false)}
+        showToast={showToast}
+      />
     );
   }
 

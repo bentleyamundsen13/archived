@@ -24,11 +24,13 @@ import { initializeApp } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
+  EmailAuthProvider,
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  linkWithCredential,
   onAuthStateChanged,
   signOut,
 } from "firebase/auth";
@@ -141,6 +143,12 @@ export async function emailSignIn(email, password) {
 
 export async function logOut() {
   if (auth) await signOut(auth);
+}
+
+export async function linkEmailPassword(email, password) {
+  if (!auth?.currentUser) throw new Error("Not signed in");
+  const credential = EmailAuthProvider.credential(email, password);
+  await linkWithCredential(auth.currentUser, credential);
 }
 
 function displayName(user) {

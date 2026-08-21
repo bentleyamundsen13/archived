@@ -407,6 +407,7 @@ textarea.input { resize: vertical; }
   text-transform: uppercase; color: var(--graphite); margin-bottom: 8px;
 }
 .settings-card { display: flex; flex-direction: column; gap: 12px; }
+.link-email-form { display: flex; flex-direction: column; gap: 10px; }
 
 .segmented {
   display: flex; background: var(--paper);
