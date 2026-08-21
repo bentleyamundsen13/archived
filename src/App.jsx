@@ -304,7 +304,7 @@ export default function App() {
   const [guestData, setGuestData] = useState({ collections: [] });
   const [guestLoaded, setGuestLoaded] = useState(false);
   const [cols, setCols] = useState(null);
-  const [cloudWishlist, setCloudWishlist] = useState([]);
+  const [cloudWishlist, setCloudWishlist] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [tab, setTab] = useState("collections");
   const [toast, setToast] = useState("");
@@ -407,9 +407,10 @@ export default function App() {
   // Signed in: live-sync the standalone wishlist.
   useEffect(() => {
     if (!user) {
-      setCloudWishlist([]);
+      setCloudWishlist(null);
       return;
     }
+    setCloudWishlist(null);
     return watchWishlist(user.uid, setCloudWishlist);
   }, [user]);
 
@@ -491,7 +492,8 @@ export default function App() {
   if (!loaded) return <LoadingScreen />;
 
   const collections = cloud ? cols : guestData.collections;
-  const wishlist = cloud ? cloudWishlist : guestData.wishlist || [];
+  const wishlistReady = !cloud || cloudWishlist !== null;
+  const wishlist = cloud ? (cloudWishlist ?? []) : guestData.wishlist || [];
   const alertCount = wishlist.filter(belowTarget).length;
   const open = collections.find((c) => c.id === openId);
 
@@ -2941,12 +2943,25 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
               />
             </div>
           )}
-          {wishlist.length === 0 && (
+          {!wishlistReady ? (
+            <main className="list">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="skel-card">
+                  <div className="skel skel-thumb" />
+                  <div className="skel-lines">
+                    <div className="skel skel-title" />
+                    <div className="skel skel-sub" />
+                  </div>
+                  <div className="skel skel-value" />
+                </div>
+              ))}
+            </main>
+          ) : wishlist.length === 0 ? (
             <div className="empty">
               <p>Nothing saved yet.</p>
             </div>
-          )}
-          {alerts.length > 0 && (
+          ) : null}
+          {wishlistReady && alerts.length > 0 && (
             <div className="wl-alert-banner">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:"-2px",marginRight:"5px"}}>
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -2955,7 +2970,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
               {alerts.length} {alerts.length === 1 ? "item has" : "items have"} hit your target price.
             </div>
           )}
-          <main className="list">
+          {wishlistReady && <main className="list">
             {savedFiltered.map((it, idx) => {
               const hit = belowTarget(it);
               return (
@@ -2994,7 +3009,7 @@ function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
                 </article>
               );
             })}
-          </main>
+          </main>}
         </>
       )}
     </>
