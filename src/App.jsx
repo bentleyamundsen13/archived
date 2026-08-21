@@ -530,6 +530,7 @@ export default function App() {
             cloud={cloud}
             user={user}
             wishlist={wishlist}
+            wishlistReady={wishlistReady}
             setGuestData={setGuestData}
             showToast={showToast}
           />
@@ -2567,7 +2568,7 @@ const BUYING = [
   ["auction", "Auction"],
 ];
 
-function WishlistPage({ cloud, user, wishlist, setGuestData, showToast }) {
+function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, showToast }) {
   const [view, setView] = useState("search"); // "search" | "saved"
   const [q, setQ] = useState("");
   const [buying, setBuying] = useState(""); // "" both · "fixed" · "auction"
