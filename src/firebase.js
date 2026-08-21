@@ -25,6 +25,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   onAuthStateChanged,
@@ -109,9 +110,22 @@ export function watchAuth(callback) {
   return onAuthStateChanged(auth, callback);
 }
 
+// WKWebView doesn't support popups — detect by Mobile UA without Safari token,
+// or by the presence of window.webkit (the native JS bridge).
+function isWKWebView() {
+  const ua = navigator.userAgent;
+  return (
+    /Mobile/.test(ua) && !/Safari/.test(ua)
+  ) || !!(window.webkit?.messageHandlers);
+}
+
 export async function googleSignIn() {
   const provider = new GoogleAuthProvider();
-  await signInWithPopup(auth, provider);
+  if (isWKWebView()) {
+    await signInWithRedirect(auth, provider);
+  } else {
+    await signInWithPopup(auth, provider);
+  }
 }
 
 export async function emailSignUp(email, password) {
