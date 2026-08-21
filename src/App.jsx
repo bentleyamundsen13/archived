@@ -31,6 +31,7 @@ import {
   updateWishlistItem,
   deleteWishlistItem,
   linkEmailPassword,
+  isWKWebView,
   track,
 } from "./firebase.js";
 
@@ -760,12 +761,16 @@ function Landing({ onGuest }) {
                 <a href="/terms.html" target="_blank" rel="noreferrer">Terms of Use</a>.
               </span>
             </label>
-            <button className="btn google" disabled={!agreed} onClick={google}>
-              <GoogleMark /> Continue with Google
-            </button>
-            <div className="divider">
-              <span>or</span>
-            </div>
+            {!isWKWebView() && (
+              <>
+                <button className="btn google" disabled={!agreed} onClick={google}>
+                  <GoogleMark /> Continue with Google
+                </button>
+                <div className="divider">
+                  <span>or</span>
+                </div>
+              </>
+            )}
             <input
               className="input"
               type="email"

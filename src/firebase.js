@@ -118,7 +118,7 @@ export function watchAuth(callback) {
 
 // WKWebView doesn't support popups — detect by Mobile UA without Safari token,
 // or by the presence of window.webkit (the native JS bridge).
-function isWKWebView() {
+export function isWKWebView() {
   if (window.__inWebView === true) return true;
   const ua = navigator.userAgent;
   return (/Mobile/.test(ua) && !/Safari/.test(ua)) || !!(window.webkit?.messageHandlers);
