@@ -26,6 +26,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  getRedirectResult,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   onAuthStateChanged,
@@ -75,6 +76,9 @@ let analytics = null;
 if (firebaseReady) {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
+  getRedirectResult(auth).catch((err) => {
+    console.error("Redirect sign-in error:", err);
+  });
   // Auto-detect long-polling: Firestore's default WebChannel streaming is
   // often broken by mobile Safari and some mobile networks/proxies, which
   // hangs every read at "Loading…". This falls back to long-polling there
