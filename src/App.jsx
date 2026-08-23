@@ -31,6 +31,7 @@ import {
   updateWishlistItem,
   deleteWishlistItem,
   linkEmailPassword,
+  deleteAccount,
   isWKWebView,
   track,
 } from "./firebase.js";
@@ -2051,12 +2052,32 @@ function FeedbackModal({ user, onClose, showToast }) {
 /*  You page + settings                                                */
 /* ------------------------------------------------------------------ */
 
-function SettingsPage({ user, theme, setTheme, onSignOut, onBack, onSupport, showToast }) {
+function SettingsPage({ user, collections, theme, setTheme, onSignOut, onBack, onSupport, showToast }) {
   const hasPassword = user?.providerData?.some((p) => p.providerId === "password");
   const [linkEmail, setLinkEmail] = useState("");
   const [linkPass, setLinkPass] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkDone, setLinkDone] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  async function handleDelete() {
+    setDeleteBusy(true);
+    try {
+      const ownedIds = (collections || [])
+        .filter((c) => c.owner === user.uid)
+        .map((c) => c.id);
+      await deleteAccount(user.uid, ownedIds);
+    } catch (err) {
+      setDeleteBusy(false);
+      setConfirmDelete(false);
+      if (err.code === "auth/requires-recent-login") {
+        showToast("Please sign out and sign back in, then try again.");
+      } else {
+        showToast("Something went wrong. Try again.");
+      }
+    }
+  }
 
   async function handleLink(e) {
     e.preventDefault();
@@ -2166,6 +2187,33 @@ function SettingsPage({ user, theme, setTheme, onSignOut, onBack, onSupport, sho
           </button>
         </div>
       </div>
+
+      {user && !confirmDelete && (
+        <div className="settings-group">
+          <div className="settings-label">Danger zone</div>
+          <div className="card settings-card">
+            <button className="btn light danger-text" onClick={() => setConfirmDelete(true)}>
+              Delete account
+            </button>
+          </div>
+        </div>
+      )}
+
+      {user && confirmDelete && (
+        <div className="settings-group">
+          <div className="settings-label">Danger zone</div>
+          <div className="card settings-card">
+            <div className="card-sub" style={{ fontWeight: 600 }}>Delete your account?</div>
+            <div className="card-sub">This permanently deletes your account and all your collections. This cannot be undone.</div>
+            <button className="btn danger" onClick={handleDelete} disabled={deleteBusy}>
+              {deleteBusy ? <span className="spinner" /> : "Yes, delete everything"}
+            </button>
+            <button className="btn light" onClick={() => setConfirmDelete(false)} disabled={deleteBusy}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <p className="fineprint">
         Item values are AI or marketplace estimates for personal reference,
@@ -2301,6 +2349,7 @@ function YouPage({ user, guest, collections, theme, setTheme, showToast, onSignO
     return (
       <SettingsPage
         user={user}
+        collections={collections}
         theme={theme}
         setTheme={setTheme}
         onSignOut={onSignOut}

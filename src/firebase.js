@@ -33,6 +33,7 @@ import {
   linkWithCredential,
   onAuthStateChanged,
   signOut,
+  deleteUser,
 } from "firebase/auth";
 import {
   initializeFirestore,
@@ -594,4 +595,33 @@ export async function migrateIfNeeded(user) {
     }
   }
   await setDoc(ref, { migratedV2: true }, { merge: true });
+}
+
+/* ---------------- account deletion ---------------- */
+// Deletes all user data then removes the Auth account. Requires recent login —
+// if Firebase throws auth/requires-recent-login, the caller should surface that.
+export async function deleteAccount(uid, ownedCollectionIds) {
+  // 1. Delete wishlist items
+  const wlSnap = await getDocs(collection(db, "users", uid, "wishlist"));
+  if (wlSnap.size > 0) {
+    const batch = writeBatch(db);
+    wlSnap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+
+  // 2. Delete user profile doc
+  await deleteDoc(doc(db, "users", uid));
+
+  // 3. Delete owned collections (items/images become orphaned but are
+  //    inaccessible via security rules without the parent collection doc)
+  if (ownedCollectionIds?.length) {
+    const batch = writeBatch(db);
+    for (const cid of ownedCollectionIds) {
+      batch.delete(doc(db, "collections", cid));
+    }
+    await batch.commit();
+  }
+
+  // 4. Delete the Auth account itself
+  await deleteUser(auth.currentUser);
 }
