@@ -107,6 +107,63 @@ export default async (req) => {
   try {
     const u = new URL(req.url);
     if (req.method === "GET" && u.searchParams.get("diag")) {
+      // ?diag=1 — quick health check, just lists configured providers.
+      // ?diag=full — probes every model with a tiny text-only request so
+      // we can see EXACTLY which models return which error. Never expose
+      // this endpoint's output to real users; it will show raw provider
+      // errors including model IDs.
+      if (u.searchParams.get("diag") === "full") {
+        const results = [];
+        for (const provider of PROVIDERS) {
+          const key = process.env[provider.keyEnv];
+          if (!key) {
+            results.push({ provider: provider.name, model: null, status: "no_key" });
+            continue;
+          }
+          for (const model of provider.models) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 8000);
+            try {
+              const resp = await fetch(provider.url, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${key}`,
+                },
+                body: JSON.stringify({
+                  model,
+                  messages: [{ role: "user", content: "hi" }],
+                  max_tokens: 5,
+                }),
+                signal: controller.signal,
+              });
+              let detail = "";
+              try {
+                const j = await resp.json();
+                detail = j?.error?.message || (resp.ok ? "ok" : JSON.stringify(j).slice(0, 200));
+              } catch {}
+              results.push({
+                provider: provider.name,
+                model,
+                status: resp.status,
+                detail: detail.slice(0, 200),
+              });
+            } catch (err) {
+              results.push({
+                provider: provider.name,
+                model,
+                status: "network_error",
+                detail: String(err).slice(0, 200),
+              });
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+        }
+        return new Response(JSON.stringify({ ok: true, results }, null, 2), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(
         JSON.stringify({
           ok: true,
