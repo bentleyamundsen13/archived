@@ -11,12 +11,15 @@ const PROVIDERS = [
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     keyEnv: "GEMINI_API_KEY",
     thinking: true,
+    // Current Gemini Flash line as of Sept 2026. `gemini-flash-latest` is
+    // an alias that always points at the newest Flash; keeping it last means
+    // the request survives even after Google renames the specific IDs.
     models: [
-      "gemini-3-flash",
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
+      "gemini-3.8-flash",
+      "gemini-3.7-flash",
+      "gemini-3.6-flash",
+      "gemini-3.5-flash-lite",
       "gemini-flash-latest",
-      "gemini-flash-lite-latest",
     ],
   },
   {
