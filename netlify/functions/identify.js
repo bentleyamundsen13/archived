@@ -25,8 +25,9 @@ const PROVIDERS = [
     keyEnv: "GROQ_API_KEY",
     thinking: false,
     models: [
-      "meta-llama/llama-4-scout-17b-16e-instruct",
-      "meta-llama/llama-4-maverick-17b-128e-instruct",
+      // Groq deprecated the Llama 4 vision models in June 2026;
+      // Qwen 3.6 27B is their current vision-capable multimodal model.
+      "qwen/qwen3.6-27b",
     ],
   },
 ];
@@ -171,24 +172,28 @@ export default async (req) => {
     }
 
     if (!resp || !resp.ok) {
-      let detail = "";
+      // User-facing message stays generic and helpful. The raw provider
+      // error is logged server-side so we can debug without leaking model
+      // names, keys, or upstream stack traces to users.
+      let debugDetail = "";
       try {
         const errJson = await resp.json();
-        detail = errJson?.error?.message || JSON.stringify(errJson).slice(0, 300);
+        debugDetail = errJson?.error?.message || JSON.stringify(errJson).slice(0, 300);
       } catch {
         try {
-          detail = (await resp.text()).slice(0, 300);
+          debugDetail = (await resp.text()).slice(0, 300);
         } catch {}
       }
       const status = resp ? resp.status : "?";
-      const hint =
+      console.error(`identify: all AI providers failed (last status ${status}): ${debugDetail}`);
+      const userMessage =
         resp && resp.status === 429
-          ? " All free AI quotas are used up for now — try again in a few minutes."
+          ? "The AI is busy right now. Try again in a couple of minutes."
           : resp && resp.status >= 500
-            ? " The AI services are busy right now — try again in a minute."
-            : "";
+            ? "The AI is having a rough moment. Give it a minute and try again."
+            : "Couldn't identify that item right now. Try again in a moment, or enter the details yourself.";
       return new Response(
-        JSON.stringify({ error: `AI error ${status}: ${detail}${hint}` }),
+        JSON.stringify({ error: userMessage }),
         { status: 502 }
       );
     }
