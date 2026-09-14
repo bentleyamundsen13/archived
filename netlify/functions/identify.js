@@ -5,21 +5,22 @@
 // Every model has its OWN free-tier quota, and Gemini and Groq are separate
 // services with separate free tiers — so this list is real extra capacity,
 // not just error handling. Unknown model ids return 404 and are skipped.
+// Order matters: providers are tried top-to-bottom, and each one that fails
+// eats real seconds against a 10s function budget. Mistral leads because
+// it's stable and reliable. Groq is fast fallback. Gemini is LAST because
+// its keys are currently 403'd on our account — leaving it in the list means
+// it starts working automatically if the ban gets resolved, but we don't
+// pay the round-trip cost up front.
 const PROVIDERS = [
   {
-    name: "Gemini",
-    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    keyEnv: "GEMINI_API_KEY",
-    thinking: true,
-    // Current Gemini Flash line as of Sept 2026. `gemini-flash-latest` is
-    // an alias that always points at the newest Flash; keeping it last means
-    // the request survives even after Google renames the specific IDs.
+    name: "Mistral",
+    url: "https://api.mistral.ai/v1/chat/completions",
+    keyEnv: "MISTRAL_API_KEY",
+    thinking: false,
     models: [
-      "gemini-3.8-flash",
-      "gemini-3.7-flash",
-      "gemini-3.6-flash",
-      "gemini-3.5-flash-lite",
-      "gemini-flash-latest",
+      "pixtral-large-latest",
+      "pixtral-12b-latest",
+      "pixtral-12b-2409",
     ],
   },
   {
@@ -28,23 +29,20 @@ const PROVIDERS = [
     keyEnv: "GROQ_API_KEY",
     thinking: false,
     models: [
-      // Groq deprecated the Llama 4 vision models in June 2026;
-      // Qwen 3.6 27B is their current vision-capable multimodal model.
       "qwen/qwen3.6-27b",
     ],
   },
   {
-    name: "Mistral",
-    url: "https://api.mistral.ai/v1/chat/completions",
-    keyEnv: "MISTRAL_API_KEY",
-    thinking: false,
-    // Pixtral is Mistral's vision line. `-latest` aliases stay current
-    // when Mistral versions models; the pinned Pixtral 12B stays as a
-    // stable last resort.
+    name: "Gemini",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    keyEnv: "GEMINI_API_KEY",
+    thinking: true,
     models: [
-      "pixtral-large-latest",
-      "pixtral-12b-latest",
-      "pixtral-12b-2409",
+      "gemini-3.8-flash",
+      "gemini-3.7-flash",
+      "gemini-3.6-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-flash-latest",
     ],
   },
 ];
@@ -86,10 +84,11 @@ async function callModel(provider, key, model, prompt, mime, imageBase64, useJso
   if (useJsonMode) body.response_format = { type: "json_object" };
 
   // Node's global fetch has NO default timeout — a stalled upstream would
-  // hang the whole function until the platform kills it. Cap each call so
-  // a slow model aborts and we fall through to the next one.
+  // hang the whole function until the platform kills it. 8s per model is
+  // enough for a normal vision call while leaving headroom to fall through
+  // to another provider inside Netlify's 10s function budget.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
     return await fetch(provider.url, {
       method: "POST",
