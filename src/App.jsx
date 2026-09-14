@@ -328,11 +328,20 @@ export default function App() {
   // page's `key`, so a bump remounts that page and clears its internal state
   // (open item, search text, scanned image, expanded section, etc.).
   const [resetSignal, setResetSignal] = useState({ collections: 0, wishlist: 0, scan: 0, deals: 0, you: 0 });
+  // A page can register a "step back" handler here; when the user taps the
+  // active tab and a handler is set, we call it (closing the current
+  // drilldown) instead of remounting the page. Only the second tap — with no
+  // drilldown open — triggers the reset/refresh.
+  const stepBackRef = useRef({ wishlist: null, collections: null });
 
   function handleTabTap(nextTab) {
     if (nextTab === tab) {
-      // Tapping the active tab: exit any drilldown and reset the page.
-      if (nextTab === "collections") setOpenId(null);
+      // Collections: openId is App state, so App owns the step-back.
+      if (nextTab === "collections" && openId) { setOpenId(null); return; }
+      // Wishlist and others: the page registers its own step-back handler.
+      const step = stepBackRef.current[nextTab];
+      if (step) { step(); return; }
+      // No drilldown to close: bump the reset signal (refresh).
       setResetSignal((s) => ({ ...s, [nextTab]: (s[nextTab] || 0) + 1 }));
     } else {
       setTab(nextTab);
@@ -565,6 +574,7 @@ export default function App() {
             setGuestData={setGuestData}
             showToast={showToast}
             resetSignal={resetSignal.wishlist}
+            stepBackRef={stepBackRef}
           />
         </div>
       ) : tab === "scan" ? (
@@ -2724,7 +2734,7 @@ const BUYING = [
   ["auction", "Auction"],
 ];
 
-function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, showToast, resetSignal = 0 }) {
+function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, showToast, resetSignal = 0, stepBackRef }) {
   const [view, setView] = useState("search"); // "search" | "saved"
   const [q, setQ] = useState("");
   const [buying, setBuying] = useState(""); // "" both · "fixed" · "auction"
@@ -2819,6 +2829,27 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
   const savedIds = new Set(wishlist.map((w) => w.itemId || w.listing_url));
   const openItem = openId ? wishlist.find((w) => w.id === openId) : null;
   const alerts = wishlist.filter(belowTarget);
+
+  // Register a "step back" handler with App. When something is drilled in
+  // (an item is open, an eBay preview is showing, or a search is active),
+  // tapping the wishlist tab should close that first — not refresh the page.
+  useEffect(() => {
+    if (!stepBackRef) return;
+    const hasDrilldown = openId || preview || results !== null || q.trim().length > 0;
+    if (hasDrilldown) {
+      stepBackRef.current.wishlist = () => {
+        if (openId) setOpenId(null);
+        else if (preview) setPreview(null);
+        else if (results !== null) { setResults(null); setQ(""); }
+        else if (q.trim().length > 0) setQ("");
+      };
+    } else {
+      stepBackRef.current.wishlist = null;
+    }
+    return () => {
+      if (stepBackRef.current) stepBackRef.current.wishlist = null;
+    };
+  }, [openId, preview, results, q, stepBackRef]);
 
   // Keep target-priced items fresh (lighter cadence than the weekly refresh) so
   // an alert fires soon after a drop — runs once when the wishlist first loads.
