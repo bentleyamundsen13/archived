@@ -33,6 +33,20 @@ const PROVIDERS = [
       "qwen/qwen3.6-27b",
     ],
   },
+  {
+    name: "Mistral",
+    url: "https://api.mistral.ai/v1/chat/completions",
+    keyEnv: "MISTRAL_API_KEY",
+    thinking: false,
+    // Pixtral is Mistral's vision line. `-latest` aliases stay current
+    // when Mistral versions models; the pinned Pixtral 12B stays as a
+    // stable last resort.
+    models: [
+      "pixtral-large-latest",
+      "pixtral-12b-latest",
+      "pixtral-12b-2409",
+    ],
+  },
 ];
 
 const JSON_RULES =
