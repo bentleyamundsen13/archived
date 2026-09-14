@@ -516,17 +516,28 @@ textarea.input { resize: vertical; }
   font-size: 12.5px; color: var(--graphite); margin: 10px 0 2px;
 }
 
-/* pull-to-refresh indicator on scrollable lists */
+/* pull-to-refresh indicator, positioned as an overlay so nothing below it
+   jumps as the bar animates in and out. */
 .pull-refresh {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 56px;
   display: flex; align-items: center; justify-content: center;
-  overflow: hidden;
-  transition: height 0.18s ease, opacity 0.18s ease;
+  transform: translateY(0);
+  pointer-events: none;
+  z-index: 5;
   color: var(--graphite);
+}
+/* Only animate the settle-back and settle-to-refresh moments, not the
+   frame-by-frame drag (which we already ease with rAF in JS). */
+.pull-refresh.active,
+.pull-refresh:not(.pulling) {
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1), opacity 0.18s ease;
 }
 .pull-spinner-idle {
   animation: none !important;
   border-top-color: var(--graphite) !important;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 /* weekly-change badge on item cards */

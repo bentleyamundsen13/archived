@@ -2716,58 +2716,59 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
   const [savedQuery, setSavedQuery] = useState("");
   const [openId, setOpenId] = useState(null);
   const [preview, setPreview] = useState(null); // an eBay result being viewed pre-save
-  // Invalidate the module-level recs cache on every mount so navigating in
-  // (or tapping the wishlist tab while on wishlist, which forces a remount)
-  // always pulls fresh recommendations.
-  const [recs, setRecs] = useState(null);
-  const [recsGeneric, setRecsGeneric] = useState(false);
+  // Recommendations state. `refreshNonce` bumps to force the fetch effect
+  // to re-run and skip any cache. On mount we start recs from the cache
+  // (so returning to the tab isn't a blank flash), but the pull gesture and
+  // tab-tap remount both bypass it.
+  const [recs, setRecs] = useState(recsCache?.items || null);
+  const [recsGeneric, setRecsGeneric] = useState(recsCache?.generic || false);
   const [recsLoading, setRecsLoading] = useState(false);
-  useEffect(() => { recsCache = null; }, []);
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
-  // Pull-to-refresh gesture. When the user is at the top of the page and
-  // drags down past REFRESH_THRESHOLD, we bump the pull counter to force
-  // a full component remount — same effect as tapping the wishlist tab.
+  // Pull-to-refresh. We animate a bar off the top of the page via CSS
+  // transform (smoother than animating height every frame), then trigger a
+  // refetch when the pull passes REFRESH_THRESHOLD.
   const REFRESH_THRESHOLD = 70;
   const [pullY, setPullY] = useState(0);
-  const [refreshingPull, setRefreshingPull] = useState(false);
+  const [pullState, setPullState] = useState("idle"); // idle | pulling | refreshing
   const pullStartY = useRef(null);
-  const scrollElRef = useRef(null);
   useEffect(() => {
     const el = document.querySelector(".page.with-tabbar");
-    scrollElRef.current = el;
     if (!el) return;
+    let raf = null;
+    let currentY = 0;
     function onStart(e) {
       if (el.scrollTop > 0) return;
       pullStartY.current = e.touches[0].clientY;
+      currentY = 0;
     }
     function onMove(e) {
       if (pullStartY.current == null) return;
       const dy = e.touches[0].clientY - pullStartY.current;
-      if (dy > 0 && el.scrollTop === 0) {
-        e.preventDefault();
-        // Ease the pull so it feels rubbery, not linear.
-        setPullY(Math.min(120, dy * 0.55));
+      if (dy > 0 && el.scrollTop <= 0) {
+        // Rubber-band easing: harder to pull as it grows.
+        currentY = Math.min(120, dy * 0.5);
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = null;
+          setPullY(currentY);
+          setPullState("pulling");
+        });
       }
     }
-    async function onEnd() {
-      const y = pullY;
+    function onEnd() {
+      const y = currentY;
       pullStartY.current = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
       if (y >= REFRESH_THRESHOLD) {
-        setRefreshingPull(true);
-        setPullY(60);
-        // Clear cache + re-trigger the fetch effects by resetting state that
-        // drives them. The seedKey check in the recs effect will refetch
-        // because recsCache is nulled here.
-        recsCache = null;
-        setRecs(null);
-        setResults(null);
-        setSearching(false);
-        // Small delay so the user sees the spinner momentarily, not a flash.
-        setTimeout(() => {
-          setRefreshingPull(false);
-          setPullY(0);
-        }, 600);
+        // Snap to the resting refresh position and kick off the fetch.
+        setPullState("refreshing");
+        setPullY(56);
+        setRefreshNonce((n) => n + 1);
       } else {
+        // Release without refresh: snap back.
+        setPullState("idle");
         setPullY(0);
       }
     }
@@ -2780,9 +2781,22 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
       el.removeEventListener("touchmove", onMove);
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
+      if (raf) cancelAnimationFrame(raf);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pullY]);
+  }, []);
+
+  // Release the pull indicator once the refresh finishes.
+  useEffect(() => {
+    if (pullState !== "refreshing") return;
+    if (!recsLoading) {
+      // recsLoading became false after our fetch completed: hide.
+      const t = setTimeout(() => {
+        setPullState("idle");
+        setPullY(0);
+      }, 150);
+      return () => clearTimeout(t);
+    }
+  }, [recsLoading, pullState]);
 
   const savedIds = new Set(wishlist.map((w) => w.itemId || w.listing_url));
   const openItem = openId ? wishlist.find((w) => w.id === openId) : null;
@@ -2835,11 +2849,14 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
     const generic = seeds.length === 0;
     if (generic) seeds = ["vintage vinyl records", "collectible trading cards", "vintage watches"];
     const seedKey = buying + "|" + seeds.slice(0, 2).join("|");
-    if (recsCache && recsCache.seedKey === seedKey) {
+    // Skip cache when the pull-to-refresh nonce is set, so a refresh always
+    // hits the API. On regular navigation the cache still short-circuits.
+    if (refreshNonce === 0 && recsCache && recsCache.seedKey === seedKey) {
       setRecs(recsCache.items);
       setRecsGeneric(recsCache.generic);
       return;
     }
+    if (refreshNonce > 0) recsCache = null;
     let dead = false;
     setRecsLoading(true);
     (async () => {
@@ -2884,7 +2901,7 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
       dead = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wishlist.length, buying]);
+  }, [wishlist.length, buying, refreshNonce]);
 
   // buyingOverride lets the filter buttons search with the just-clicked value
   // without waiting for the async state update.
@@ -3061,14 +3078,15 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
 
   return (
     <>
-      {(pullY > 0 || refreshingPull) && (
-        <div
-          className="pull-refresh"
-          style={{ height: pullY, opacity: Math.min(1, pullY / REFRESH_THRESHOLD) }}
-        >
-          <span className={"spinner" + (refreshingPull ? "" : " pull-spinner-idle")} />
-        </div>
-      )}
+      <div
+        className={"pull-refresh" + (pullState === "refreshing" ? " active" : "") + (pullState === "pulling" ? " pulling" : "")}
+        style={{
+          transform: `translateY(${pullY}px)`,
+          opacity: pullY > 0 ? Math.min(1, pullY / REFRESH_THRESHOLD) : 0,
+        }}
+      >
+        <span className={"spinner" + (pullState === "refreshing" ? "" : " pull-spinner-idle")} />
+      </div>
       <header className="topbar">
         <h1>Wishlist</h1>
         <button
