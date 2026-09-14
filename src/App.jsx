@@ -548,6 +548,7 @@ export default function App() {
             wishlistReady={wishlistReady}
             setGuestData={setGuestData}
             showToast={showToast}
+            resetSignal={resetSignal.wishlist}
           />
         </div>
       ) : tab === "scan" ? (
@@ -2707,7 +2708,7 @@ const BUYING = [
   ["auction", "Auction"],
 ];
 
-function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, showToast }) {
+function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, showToast, resetSignal = 0 }) {
   const [view, setView] = useState("search"); // "search" | "saved"
   const [q, setQ] = useState("");
   const [buying, setBuying] = useState(""); // "" both · "fixed" · "auction"
@@ -2717,13 +2718,15 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
   const [openId, setOpenId] = useState(null);
   const [preview, setPreview] = useState(null); // an eBay result being viewed pre-save
   // Recommendations state. `refreshNonce` bumps to force the fetch effect
-  // to re-run and skip any cache. On mount we start recs from the cache
-  // (so returning to the tab isn't a blank flash), but the pull gesture and
-  // tab-tap remount both bypass it.
-  const [recs, setRecs] = useState(recsCache?.items || null);
-  const [recsGeneric, setRecsGeneric] = useState(recsCache?.generic || false);
-  const [recsLoading, setRecsLoading] = useState(false);
-  const [refreshNonce, setRefreshNonce] = useState(0);
+  // to re-run and skip any cache. On a tab-tap remount (resetSignal > 0)
+  // we start with a fresh fetch by pre-bumping the nonce; on regular
+  // navigation (resetSignal === 0) we start from cache so returning to the
+  // tab isn't a blank flash.
+  const startFromCache = resetSignal === 0;
+  const [recs, setRecs] = useState(startFromCache ? recsCache?.items || null : null);
+  const [recsGeneric, setRecsGeneric] = useState(startFromCache ? recsCache?.generic || false : false);
+  const [recsLoading, setRecsLoading] = useState(!startFromCache);
+  const [refreshNonce, setRefreshNonce] = useState(startFromCache ? 0 : 1);
 
   // Pull-to-refresh. We animate a bar off the top of the page via CSS
   // transform (smoother than animating height every frame), then trigger a
@@ -2785,18 +2788,17 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
     };
   }, []);
 
-  // Release the pull indicator once the refresh finishes.
+  // Release the pull indicator after a fixed hold. A brief solid hold reads
+  // as intentional; trying to sync with recsLoading created race conditions
+  // where the fetch resolved before React committed the loading state.
   useEffect(() => {
     if (pullState !== "refreshing") return;
-    if (!recsLoading) {
-      // recsLoading became false after our fetch completed: hide.
-      const t = setTimeout(() => {
-        setPullState("idle");
-        setPullY(0);
-      }, 150);
-      return () => clearTimeout(t);
-    }
-  }, [recsLoading, pullState]);
+    const t = setTimeout(() => {
+      setPullState("idle");
+      setPullY(0);
+    }, 850);
+    return () => clearTimeout(t);
+  }, [pullState]);
 
   const savedIds = new Set(wishlist.map((w) => w.itemId || w.listing_url));
   const openItem = openId ? wishlist.find((w) => w.id === openId) : null;
@@ -2848,7 +2850,22 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
     let seeds = [...new Set([...recent, ...brands])].slice(0, 4);
     const generic = seeds.length === 0;
     if (generic) seeds = ["vintage vinyl records", "collectible trading cards", "vintage watches"];
-    const seedKey = buying + "|" + seeds.slice(0, 2).join("|");
+    // On refresh, shuffle the seed order so a different seed leads and the
+    // interleaved list changes. Also stir in a random extra seed from a
+    // rotating pool so we don't always come back with the same 12 items.
+    if (refreshNonce > 0) {
+      // Fisher-Yates shuffle
+      for (let i = seeds.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [seeds[i], seeds[j]] = [seeds[j], seeds[i]];
+      }
+      const extraPool = [
+        "vintage collectibles", "trading cards", "vinyl records",
+        "sneakers", "watches", "coins", "pocket knife",
+      ];
+      seeds.unshift(extraPool[Math.floor(Math.random() * extraPool.length)]);
+    }
+    const seedKey = buying + "|" + seeds.slice(0, 2).join("|") + "|" + refreshNonce;
     // Skip cache when the pull-to-refresh nonce is set, so a refresh always
     // hits the API. On regular navigation the cache still short-circuits.
     if (refreshNonce === 0 && recsCache && recsCache.seedKey === seedKey) {
