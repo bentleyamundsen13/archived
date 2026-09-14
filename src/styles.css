@@ -516,6 +516,19 @@ textarea.input { resize: vertical; }
   font-size: 12.5px; color: var(--graphite); margin: 10px 0 2px;
 }
 
+/* pull-to-refresh indicator on scrollable lists */
+.pull-refresh {
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  transition: height 0.18s ease, opacity 0.18s ease;
+  color: var(--graphite);
+}
+.pull-spinner-idle {
+  animation: none !important;
+  border-top-color: var(--graphite) !important;
+  opacity: 0.6;
+}
+
 /* weekly-change badge on item cards */
 .item-value-col { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
 .wk-change { font-size: 12px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }

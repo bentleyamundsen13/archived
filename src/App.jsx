@@ -2716,9 +2716,73 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
   const [savedQuery, setSavedQuery] = useState("");
   const [openId, setOpenId] = useState(null);
   const [preview, setPreview] = useState(null); // an eBay result being viewed pre-save
-  const [recs, setRecs] = useState(recsCache?.items || null);
-  const [recsGeneric, setRecsGeneric] = useState(recsCache?.generic || false);
+  // Invalidate the module-level recs cache on every mount so navigating in
+  // (or tapping the wishlist tab while on wishlist, which forces a remount)
+  // always pulls fresh recommendations.
+  const [recs, setRecs] = useState(null);
+  const [recsGeneric, setRecsGeneric] = useState(false);
   const [recsLoading, setRecsLoading] = useState(false);
+  useEffect(() => { recsCache = null; }, []);
+
+  // Pull-to-refresh gesture. When the user is at the top of the page and
+  // drags down past REFRESH_THRESHOLD, we bump the pull counter to force
+  // a full component remount — same effect as tapping the wishlist tab.
+  const REFRESH_THRESHOLD = 70;
+  const [pullY, setPullY] = useState(0);
+  const [refreshingPull, setRefreshingPull] = useState(false);
+  const pullStartY = useRef(null);
+  const scrollElRef = useRef(null);
+  useEffect(() => {
+    const el = document.querySelector(".page.with-tabbar");
+    scrollElRef.current = el;
+    if (!el) return;
+    function onStart(e) {
+      if (el.scrollTop > 0) return;
+      pullStartY.current = e.touches[0].clientY;
+    }
+    function onMove(e) {
+      if (pullStartY.current == null) return;
+      const dy = e.touches[0].clientY - pullStartY.current;
+      if (dy > 0 && el.scrollTop === 0) {
+        e.preventDefault();
+        // Ease the pull so it feels rubbery, not linear.
+        setPullY(Math.min(120, dy * 0.55));
+      }
+    }
+    async function onEnd() {
+      const y = pullY;
+      pullStartY.current = null;
+      if (y >= REFRESH_THRESHOLD) {
+        setRefreshingPull(true);
+        setPullY(60);
+        // Clear cache + re-trigger the fetch effects by resetting state that
+        // drives them. The seedKey check in the recs effect will refetch
+        // because recsCache is nulled here.
+        recsCache = null;
+        setRecs(null);
+        setResults(null);
+        setSearching(false);
+        // Small delay so the user sees the spinner momentarily, not a flash.
+        setTimeout(() => {
+          setRefreshingPull(false);
+          setPullY(0);
+        }, 600);
+      } else {
+        setPullY(0);
+      }
+    }
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd);
+    el.addEventListener("touchcancel", onEnd);
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+      el.removeEventListener("touchcancel", onEnd);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pullY]);
 
   const savedIds = new Set(wishlist.map((w) => w.itemId || w.listing_url));
   const openItem = openId ? wishlist.find((w) => w.id === openId) : null;
@@ -2997,6 +3061,14 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
 
   return (
     <>
+      {(pullY > 0 || refreshingPull) && (
+        <div
+          className="pull-refresh"
+          style={{ height: pullY, opacity: Math.min(1, pullY / REFRESH_THRESHOLD) }}
+        >
+          <span className={"spinner" + (refreshingPull ? "" : " pull-spinner-idle")} />
+        </div>
+      )}
       <header className="topbar">
         <h1>Wishlist</h1>
         <button
