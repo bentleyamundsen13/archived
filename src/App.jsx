@@ -590,6 +590,7 @@ export default function App() {
             showToast={showToast}
             resetSignal={resetSignal.wishlist}
             stepBackRef={stepBackRef}
+            collections={collections}
           />
         </div>
       ) : tab === "scan" ? (
@@ -2749,7 +2750,7 @@ const BUYING = [
   ["auction", "Auction"],
 ];
 
-function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, showToast, resetSignal = 0, stepBackRef }) {
+function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, showToast, resetSignal = 0, stepBackRef, collections = [] }) {
   const [view, setView] = useState("search"); // "search" | "saved"
   const [q, setQ] = useState("");
   const [buying, setBuying] = useState(""); // "" both · "fixed" · "auction"
@@ -2902,14 +2903,33 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wishlist.length]);
 
-  // Recommendations from the user's browsing (recent searches + saved items),
-  // shown on the search landing before they've typed anything.
+  // Recommendations from the user's browsing (recent searches + saved items
+  // + what they OWN in their collections), shown on the search landing.
   useEffect(() => {
     const recent = getRecentSearches();
-    const brands = [
+    // Wishlist item names — things the user has explicitly saved.
+    const wishlistBrands = [
       ...new Set(wishlist.map((w) => firstWords(w.item_name, 3)).filter(Boolean)),
     ];
-    let seeds = [...new Set([...recent, ...brands])].slice(0, 4);
+    // Collection-derived seeds. Two sources per collection:
+    //   1. The item names (specific — "Seiko SKX007" → "Seiko SKX007")
+    //   2. The collection's type/name (broad — a "Watches" collection tells
+    //      us the user is INTO watches even if their exact pieces are niche).
+    // Item names weigh more than category names in the merge order.
+    const collectionItemBrands = [];
+    const collectionTypeBrands = [];
+    for (const c of collections || []) {
+      const type = (c.type || c.name || "").trim();
+      if (type) collectionTypeBrands.push(type);
+      for (const it of (c.items || [])) {
+        if (it.wanted) continue; // skip wishlist-flagged items in collections
+        const name = firstWords(it.item_name || it.name || "", 3);
+        if (name) collectionItemBrands.push(name);
+      }
+    }
+    let seeds = [
+      ...new Set([...recent, ...wishlistBrands, ...collectionItemBrands, ...collectionTypeBrands]),
+    ].slice(0, 6);
     const generic = seeds.length === 0;
     if (generic) seeds = ["vintage vinyl records", "collectible trading cards", "vintage watches"];
     // On refresh, shuffle the seed order so a different seed leads and the
