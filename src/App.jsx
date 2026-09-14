@@ -171,10 +171,24 @@ function pushRecentSearch(term) {
 const firstWords = (s, n) => (s || "").trim().split(/\s+/).slice(0, n).join(" ");
 // Cached recommendations for the session so switching tabs doesn't refetch.
 let recsCache = null; // { seedKey, items, generic }
-// Item ids shown across the last few refreshes, so a refresh never returns
-// the same 12 items that were just on screen. Capped so it doesn't grow.
-const recentlyShownIds = new Set();
+// Item ids shown across the last few refreshes AND recent sessions, so a
+// fresh app open doesn't just replay the same defaults. Persisted in
+// localStorage under a small capped list.
+const RECENTLY_SHOWN_KEY = "archived:recentRecs:v1";
 const RECENTLY_SHOWN_CAP = 60;
+const recentlyShownIds = new Set(
+  (() => {
+    try {
+      const raw = localStorage.getItem(RECENTLY_SHOWN_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  })()
+);
+function persistRecentlyShown() {
+  try {
+    localStorage.setItem(RECENTLY_SHOWN_KEY, JSON.stringify([...recentlyShownIds]));
+  } catch {}
+}
 function trackRecentlyShown(ids) {
   for (const id of ids) recentlyShownIds.add(id);
   if (recentlyShownIds.size > RECENTLY_SHOWN_CAP) {
@@ -186,6 +200,7 @@ function trackRecentlyShown(ids) {
       recentlyShownIds.delete(id);
     }
   }
+  persistRecentlyShown();
 }
 
 // Compact form for tight spots like the donut center: $1.3M, $45K, $322.
@@ -2744,13 +2759,13 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
   const [openId, setOpenId] = useState(null);
   const [preview, setPreview] = useState(null); // an eBay result being viewed pre-save
   // Recommendations state. `refreshNonce` bumps to force the fetch effect
-  // to re-run and skip any cache. On a tab-tap remount (resetSignal > 0)
-  // we start with a fresh fetch by pre-bumping the nonce; on regular
-  // navigation (resetSignal === 0) we start from cache so returning to the
-  // tab isn't a blank flash.
-  const startFromCache = resetSignal === 0;
-  const [recs, setRecs] = useState(startFromCache ? recsCache?.items || null : null);
-  const [recsGeneric, setRecsGeneric] = useState(startFromCache ? recsCache?.generic || false : false);
+  // to re-run and skip any cache. Cache-first only applies when the module
+  // cache has real content (i.e., in-session navigation); on a cold start
+  // or tab-tap remount we treat it as a refresh so the user sees fresh
+  // items, not the same defaults every new session.
+  const startFromCache = resetSignal === 0 && recsCache !== null;
+  const [recs, setRecs] = useState(startFromCache ? recsCache.items : null);
+  const [recsGeneric, setRecsGeneric] = useState(startFromCache ? recsCache.generic : false);
   const [recsLoading, setRecsLoading] = useState(!startFromCache);
   const [refreshNonce, setRefreshNonce] = useState(startFromCache ? 0 : 1);
 
