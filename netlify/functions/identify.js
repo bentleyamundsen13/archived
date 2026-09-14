@@ -105,14 +105,57 @@ async function callModel(provider, key, model, prompt, mime, imageBase64, useJso
   }
 }
 
-// Pull the first {...} object out of text that may have extra words around it.
+// Pull a JSON object out of a model response that may include markdown fences,
+// leading commentary, or curly braces inside quoted string values. Tries a few
+// increasingly-forgiving strategies rather than one brittle greedy match.
 function extractJson(text) {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("No JSON found in model response");
+  let candidate = text;
+  // Strip markdown code fences (```json ... ``` or bare ``` ... ```). Some
+  // models add these even when told not to.
+  const fenced = candidate.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) candidate = fenced[1];
+
+  // Try #1: whole trimmed candidate as-is.
+  const trimmed = candidate.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try { return JSON.parse(trimmed); } catch {}
   }
-  return JSON.parse(text.slice(start, end + 1));
+
+  // Try #2: bracket-balanced scan from the first '{' that respects string
+  // literals — avoids the "curly brace inside a string" failure mode of a
+  // naive first/last lookup.
+  const start = candidate.indexOf("{");
+  if (start !== -1) {
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = start; i < candidate.length; i++) {
+      const c = candidate[i];
+      if (inStr) {
+        if (esc) { esc = false; continue; }
+        if (c === "\\") { esc = true; continue; }
+        if (c === '"') inStr = false;
+        continue;
+      }
+      if (c === '"') { inStr = true; continue; }
+      if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(candidate.slice(start, i + 1)); } catch { break; }
+        }
+      }
+    }
+  }
+
+  // Try #3: last-ditch — the old first-open to last-close slice.
+  const s = candidate.indexOf("{");
+  const e = candidate.lastIndexOf("}");
+  if (s !== -1 && e > s) {
+    try { return JSON.parse(candidate.slice(s, e + 1)); } catch {}
+  }
+
+  throw new Error("No parsable JSON in model response");
 }
 
 export default async (req) => {
