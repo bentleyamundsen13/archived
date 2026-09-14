@@ -308,6 +308,20 @@ export default function App() {
   const [cloudWishlist, setCloudWishlist] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [tab, setTab] = useState("collections");
+  // Bumped when the user taps the tab they're already on. Attached to each
+  // page's `key`, so a bump remounts that page and clears its internal state
+  // (open item, search text, scanned image, expanded section, etc.).
+  const [resetSignal, setResetSignal] = useState({ collections: 0, wishlist: 0, scan: 0, deals: 0, you: 0 });
+
+  function handleTabTap(nextTab) {
+    if (nextTab === tab) {
+      // Tapping the active tab: exit any drilldown and reset the page.
+      if (nextTab === "collections") setOpenId(null);
+      setResetSignal((s) => ({ ...s, [nextTab]: (s[nextTab] || 0) + 1 }));
+    } else {
+      setTab(nextTab);
+    }
+  }
   const [toast, setToast] = useState("");
   const [showTutorial, setShowTutorial] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "system");
@@ -514,7 +528,7 @@ export default function App() {
             />
           </div>
         ) : (
-          <div className="screen" key="home">
+          <div className="screen" key={"home-" + resetSignal.collections}>
             <CollectionsHome
               collections={collections.map(summarize)}
               cloud={cloud}
@@ -526,7 +540,7 @@ export default function App() {
           </div>
         )
       ) : tab === "wishlist" ? (
-        <div className="screen" key="wishlist">
+        <div className="screen" key={"wishlist-" + resetSignal.wishlist}>
           <WishlistPage
             cloud={cloud}
             user={user}
@@ -537,7 +551,7 @@ export default function App() {
           />
         </div>
       ) : tab === "scan" ? (
-        <div className="screen" key="scan">
+        <div className="screen" key={"scan-" + resetSignal.scan}>
           <QuickScanPage
             collections={collections.map(summarize)}
             cloud={cloud}
@@ -549,11 +563,11 @@ export default function App() {
           />
         </div>
       ) : tab === "deals" ? (
-        <div className="screen" key="deals">
+        <div className="screen" key={"deals-" + resetSignal.deals}>
           <DealFinderPage />
         </div>
       ) : (
-        <div className="screen" key="you">
+        <div className="screen" key={"you-" + resetSignal.you}>
           <YouPage
             user={user}
             guest={guest}
@@ -573,7 +587,7 @@ export default function App() {
       <nav className="tabbar">
         <button
           className={"tab" + (tab === "collections" ? " active" : "")}
-          onClick={() => setTab("collections")}
+          onClick={() => handleTabTap("collections")}
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
@@ -585,7 +599,7 @@ export default function App() {
         </button>
         <button
           className={"tab" + (tab === "wishlist" ? " active" : "")}
-          onClick={() => setTab("wishlist")}
+          onClick={() => handleTabTap("wishlist")}
         >
           <span className="tab-icon-wrap">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -595,7 +609,7 @@ export default function App() {
           </span>
           Wishlist
         </button>
-        <button className="tab tab-scan" onClick={() => setTab("scan")}>
+        <button className="tab tab-scan" onClick={() => handleTabTap("scan")}>
           <div className="tab-scan-btn">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
               <path d="M12 5v14M5 12h14" />
@@ -604,7 +618,7 @@ export default function App() {
         </button>
         <button
           className={"tab" + (tab === "deals" ? " active" : "")}
-          onClick={() => setTab("deals")}
+          onClick={() => handleTabTap("deals")}
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" />
@@ -614,7 +628,7 @@ export default function App() {
         </button>
         <button
           className={"tab" + (tab === "you" ? " active" : "")}
-          onClick={() => setTab("you")}
+          onClick={() => handleTabTap("you")}
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <circle cx="12" cy="8" r="3.6" />
