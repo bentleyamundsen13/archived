@@ -257,7 +257,19 @@ export default async (req) => {
 
   const prompt =
     `You are an expert appraiser of collectible items. This photo is from ` +
-    `the user's "${String(category || "general").slice(0, 60)}" collection. ` +
+    `the user's "${String(category || "general").slice(0, 60)}" collection.\n\n` +
+    `Look CAREFULLY at:\n` +
+    `- Any brand names, logos, or wordmarks printed on the item\n` +
+    `- Model numbers, reference numbers, serial numbers, or edition text\n` +
+    `- Size, proportions, and distinctive design details\n` +
+    `- Color, materials, and finish\n\n` +
+    `IMPORTANT: If you cannot confidently identify the exact brand and model, ` +
+    `say so with value_confidence: 'low' instead of guessing. Similar-looking items ` +
+    `from different brands are common — a Teenage Engineering Pocket Operator is ` +
+    `NOT the same as a Korg Volca, a Seiko SKX007 is NOT a Seiko 5, an Air Jordan 1 ` +
+    `Retro is NOT an Air Jordan 1 Low. Be specific and accurate. If the exact model ` +
+    `is unclear, name the general category (e.g. "Vintage Japanese diver watch, brand ` +
+    `unclear") rather than picking a specific model at random.\n\n` +
     `Identify exactly what the item is, who made it, and its key specifics.`;
 
   try {
