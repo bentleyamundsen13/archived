@@ -171,6 +171,22 @@ function pushRecentSearch(term) {
 const firstWords = (s, n) => (s || "").trim().split(/\s+/).slice(0, n).join(" ");
 // Cached recommendations for the session so switching tabs doesn't refetch.
 let recsCache = null; // { seedKey, items, generic }
+// Item ids shown across the last few refreshes, so a refresh never returns
+// the same 12 items that were just on screen. Capped so it doesn't grow.
+const recentlyShownIds = new Set();
+const RECENTLY_SHOWN_CAP = 60;
+function trackRecentlyShown(ids) {
+  for (const id of ids) recentlyShownIds.add(id);
+  if (recentlyShownIds.size > RECENTLY_SHOWN_CAP) {
+    // Drop the oldest half — Sets iterate in insertion order in modern JS.
+    const drop = recentlyShownIds.size - RECENTLY_SHOWN_CAP + 20;
+    let i = 0;
+    for (const id of recentlyShownIds) {
+      if (i++ >= drop) break;
+      recentlyShownIds.delete(id);
+    }
+  }
+}
 
 // Compact form for tight spots like the donut center: $1.3M, $45K, $322.
 const compactMoney = (n) => {
@@ -2890,19 +2906,34 @@ function WishlistPage({ cloud, user, wishlist, wishlistReady, setGuestData, show
               .catch(() => [])
           )
         );
-        // Interleave the seed lists so recommendations feel varied.
+        // Interleave the seed lists so recommendations feel varied. Two-pass:
+        // pass 1 collects only items we haven't shown recently, so refreshes
+        // return genuinely new content; pass 2 fills any remaining slots
+        // from the full pool so we always have 12 items even if eBay's
+        // recycled the same top listings.
         const merged = [];
         const seen = new Set();
         const maxLen = Math.max(0, ...lists.map((l) => l.length));
-        for (let i = 0; i < maxLen; i++) {
-          for (const l of lists) {
-            const r = l[i];
-            if (!r || !r.itemId || seen.has(r.itemId) || savedSet.has(r.itemId)) continue;
-            seen.add(r.itemId);
-            merged.push(r);
+        const suppressRecent = refreshNonce > 0;
+        for (let pass = 0; pass < 2; pass++) {
+          for (let i = 0; i < maxLen; i++) {
+            for (const l of lists) {
+              const r = l[i];
+              if (!r || !r.itemId || seen.has(r.itemId) || savedSet.has(r.itemId)) continue;
+              // First pass on refresh: skip recently-shown ids.
+              if (pass === 0 && suppressRecent && recentlyShownIds.has(r.itemId)) continue;
+              seen.add(r.itemId);
+              merged.push(r);
+              if (merged.length >= 12) break;
+            }
+            if (merged.length >= 12) break;
           }
+          if (merged.length >= 12 || !suppressRecent) break;
         }
         const items = merged.slice(0, 12);
+        // Remember what we're about to show so the next refresh knows what
+        // to skip. Recording happens BEFORE display so the set is authoritative.
+        if (suppressRecent) trackRecentlyShown(items.map((i) => i.itemId).filter(Boolean));
         recsCache = { seedKey, items, generic };
         if (!dead) {
           setRecs(items);
